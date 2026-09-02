@@ -2,6 +2,8 @@ import mongoose from 'mongoose';
 import { fileURLToPath } from 'url';
 import path from 'path';
 import config from '../config/config.js';
+import { Server } from 'socket.io';
+
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,6 +20,17 @@ const connectDB = async () => {
     process.exit(1);
   }
 };
+
+const onListening = () => {
+  const serverAddress = server.address();
+  const bind =
+    typeof serverAddress === 'string'
+      ? `pipe ${serverAddress}`
+      : `port ${serverAddress.port}`;
+  debug(`Listening on ${bind}`);
+  console.log(`🚀 Server listening on port ${bind}`);
+};
+
 
 import User from './user.model.js';
 import OTPLog from './otp-log.model.js';

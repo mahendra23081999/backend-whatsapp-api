@@ -9,7 +9,7 @@ import automatedResponseWorker from './utils/automated-response-worker.js';
 import { fixSettingsData } from './utils/fix-settings-data.js';
 import { fixPlatformData } from './utils/fix-platform-data.js';
 import { setContactImportSocketIo } from './queues/contact-import-queue.js';
-import './utils/system-settings.js';
+// import './utils/system-settings.js';
 import { getSequenceQueue } from './queues/sequence-queue.js';
 import statusCronService from './cronjob/status.cronService.js';
 import trialPeriodCronService from './cronjob/trialPeriod.cronService.js';

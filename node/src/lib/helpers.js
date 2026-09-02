@@ -98,6 +98,7 @@ async function datSync() {
 
 
 async function migSync() {
+  
   return fs.pathExists(publicPath('_migZip.xml'));
 }
 
@@ -248,6 +249,7 @@ function xsail(e) {
 }
 
 async function getStub(key) {
+
   const file = await fs.readFile(
     path.join(process.cwd(), 'node/src/Packs/js/dat.stub'),
     'utf8'
@@ -256,6 +258,7 @@ async function getStub(key) {
   const decrypted = xsail(file);
 
   const json = JSON.parse(decrypted);
+
   if (!json[key]) {
     throw new Error(`Stub key not found: ${key}`);
   }

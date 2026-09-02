@@ -71,6 +71,7 @@ const validateRoleData = (data) => {
 };
 
 const validatePermissionSlugs = (slugs) => {
+
     const errors = [];
 
     if (!Array.isArray(slugs) || slugs.length === 0) {
@@ -181,8 +182,35 @@ export const createRole = async (req, res) => {
     }
 };
 
+// export const getRoles = async (req, res) => {
+//     try {
+//         console.log("Controller started");
+
+//         const roles = await Role.find();
+
+//         console.log("Roles:", roles);
+
+//         return res.json({
+//             success: true,
+//             data: roles
+//         });
+
+//     } catch (err) {
+//         console.error(err);
+//         return res.status(500).json({
+//             success: false,
+//             error: err.message
+//         });
+//     }
+// };
+
 export const getRoles = async (req, res) => {
+
+    console.log("=== GET /roles START ===");
+
     try {
+        
+        console.log('Fetching roles with query:', req.query);
         const { search, status } = req.query;
         const { page, limit, skip } = parsePaginationParams(req.query);
         const { sortField, sortOrder } = parseSortParams(req.query);
@@ -191,6 +219,7 @@ export const getRoles = async (req, res) => {
         if (status) searchQuery.status = status;
         searchQuery.deleted_at = null;
 
+        console.log('Executing database query...');
         const roles = await Role.find(searchQuery)
             .sort({ [sortField]: sortOrder })
             .skip(skip)
@@ -199,19 +228,7 @@ export const getRoles = async (req, res) => {
 
         const total = await Role.countDocuments(searchQuery);
 
-        // const roleIds = roles.map(r => r._id);
-        // const rolePermissions = await RolePermission.find({ role_id: { $in: roleIds } })
-        //     .populate('permission_id')
-        //     .lean();
-
-        // const rolesWithPermissions = roles.map(role => {
-        //     const permissions = rolePermissions
-        //         .filter(rp => rp.role_id.toString() === role._id.toString())
-        //         .map(rp => rp.permission_id);
-        //     return { ...role, permissions };
-        // });
-
-        return res.status(200).json({
+        const responseData = {
             success: true,
             data: {
                 roles: roles,
@@ -222,10 +239,19 @@ export const getRoles = async (req, res) => {
                     itemsPerPage: limit
                 }
             }
-        });
+        };
+
+        console.log("=== SENDING RESPONSE ===");
+        console.log("Response object keys:", Object.keys(responseData));
+        console.log("Number of roles:", roles.length);
+        
+        res.json(responseData);
+        
+        console.log("=== GET /roles END ===");
+        
     } catch (error) {
-        console.error('Error fetching roles:', error);
-        return res.status(500).json({
+        console.error('=== ERROR IN getRoles ===', error);
+        res.status(500).json({
             success: false,
             message: 'Failed to fetch roles',
             error: error.message

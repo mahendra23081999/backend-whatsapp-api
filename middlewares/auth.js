@@ -3,6 +3,8 @@ import mongoose from 'mongoose';
 import { User, Session, ApiKey } from '../models/index.js';
 
 const extractApiKeyFromRequest = (req) => {
+   console.log("extractApiKeyFromRequest");
+   
   const headerKey = req.headers['x-api-key'];
   if (headerKey && typeof headerKey === 'string' && headerKey.trim()) {
     return headerKey.trim();
@@ -17,6 +19,7 @@ const extractApiKeyFromRequest = (req) => {
 };
 
 export const authenticate = async (req, res, next) => {
+     console.log("authenticate");
   try {
     const apiKey = extractApiKeyFromRequest(req);
 
@@ -135,6 +138,9 @@ export const authorizeRoles = (allowedRoles = []) => {
 export const authenticateUser = authenticate;
 
 export const authorizeAdmin = (req, res, next) => {
+
+  console.log("authorizeAdmin");
+
   if (!req.user || req.user.role !== 'super_admin') {
     return res.status(403).json({
       success: false,

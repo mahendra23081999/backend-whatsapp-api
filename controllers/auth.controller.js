@@ -253,6 +253,9 @@ const checkIsWabaConfigured = async () => {
 
 
 export const register = async (req, res) => {
+
+  console.log("register--checking api key");
+
   const { name, email, phone, countryCode, password } = req.body;
 
   if (!name || !email || !phone || !countryCode || !password) {

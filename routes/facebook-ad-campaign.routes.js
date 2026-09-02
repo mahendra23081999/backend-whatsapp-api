@@ -74,7 +74,7 @@ router.post('/ads', checkPermission('create.facebook_ads'), upload.fields([
   { name: 'video', maxCount: 1 },
   { name: 'carousel_images', maxCount: 10 }
 ]), createFbAd);
-router.patch('/ads/:id', updateFbAd);
-router.delete('/ads/:id', deleteFbAd);
+router.patch('/ads/:id', checkPermission('update.facebook_ads'), updateFbAd);
+router.delete('/ads/:id', checkPermission('delete.facebook_ads'), deleteFbAd);
 
 export default router;

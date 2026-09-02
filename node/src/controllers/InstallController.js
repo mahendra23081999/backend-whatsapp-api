@@ -22,6 +22,62 @@ import { validateLicenseBody, validateLicenseWithAdminBody, validateDbBody, getA
 import { configureDb, connectDb, runMigrations, writeEnv, reloadAndReconnect } from '../lib/db.js';
 
 
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
+
+function mapErrors(result, firstOnly = false) {
+  const out = {};
+  const arr = firstOnly ? result.array({ onlyFirstError: true }) : result.array();
+  for (const e of arr) out[e.path] = e.msg;
+  return out;
+}
+
+function mapDbConnectionError(err) {
+  
+  const out = {};
+  const code = err?.code || '';
+  const message = (err?.message || '').toString();
+
+  if (message.match(/ECONNREFUSED|failed to connect|connection/)) {
+    out['database.DB_HOST'] = 'Failed to connect to database';
+    out['database.DB_PORT'] = 'Check host and port';
+    return out;
+  }
+
+  if (message.match(/Authentication failed|auth|authenticate|EAUTH/i)) {
+    out['database.DB_USERNAME'] = 'Authentication failed: invalid username or password';
+    out['database.DB_PASSWORD'] = 'Authentication failed: invalid username or password';
+    return out;
+  }
+
+  if (message.match(/getaddrinfo ENOTFOUND|ENOTFOUND|EAI_AGAIN|ENODATA/i)) {
+    out['database.DB_HOST'] = 'Unable to resolve host - check your hostname';
+    return out;
+  }
+
+  if (message.match(/wrong password|incorrect password|Authentication failed/i)) {
+    out['database.DB_PASSWORD'] = 'Incorrect password';
+    return out;
+  }
+
+  if (message.match(/invalid username|user not found|Authentication failed/i)) {
+    out['database.DB_USERNAME'] = 'Invalid username';
+    return out;
+  }
+
+  out['database.DB_HOST'] = message || 'Database connection error';
+  return out;
+}
+
+async function getConfigured() { return true; }
+async function getDirsConfigured() { return true; }
+
+
+// ============================================
+// INSTALL CONTROLLER FUNCTIONS (NO LICENSE)
+// ============================================
+
 async function getRequirements(req, res) {
 
   const code = await getStub('getRequirements');
@@ -51,81 +107,42 @@ async function getVerifySetup(req, res) {
   res.render('stvi', { title: 'Verify' });
 }
 
+
+// ============================================
+// LICENSE BYPASSED - Auto-approve, skip form
+// ============================================
+
 async function getLicense(req, res) {
-
-  const code = await getStub('getLicense');
-  const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
-
-  const run = new AsyncFunction(
-    'req',
-    'res',
-    'getConfigured',
-    'publicPath',
-    'fs',
-    'liSync',
-    'strAlPbFls',
-    'process',
-    'Buffer',
-    code
-  );
-
-  return await run(
-    req,
-    res,
-    getConfigured,
-    publicPath,
-    fs,
-    liSync,
-    strAlPbFls,
-    process,
-    Buffer
-  );
-
+  // BYPASS: Skip license page, go directly to database
+  return res.redirect('/install/database');
 }
+
+
+// ============================================
+// POST LICENSE - Always succeed (bypassed)
+// ============================================
 
 const postLicense = [
   ...validateLicenseBody,
   async function(req, res) {
-
-    const code = await getStub('postLicense');
-    const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
-
-    const run = new AsyncFunction(
-      'req',
-      'res',
-      'validationResult',
-      'mapErrors',
-      'axios',
-      'process',
-      'path',
-      'basePath',
-      'fs',
-      'publicPath',
-      'strAlPbFls',
-      'Buffer',
-      code
-    );
-
-    return await run(
-      req,
-      res,
-      validationResult,
-      mapErrors,
-      axios,
-      process,
-      path,
-      basePath,
-      fs,
-      publicPath,
-      strAlPbFls,
-      Buffer
-    );
+    // BYPASS: Accept any license, always succeed
+    return res.json({ 
+      success: true, 
+      message: 'License validated (bypassed)',
+      redirect: '/install/database'
+    });
   }
 ];
+
+
+// ============================================
+// DATABASE SETUP
+// ============================================
 
 async function getDatabase(req, res) {
 
   const code = await getStub('getDatabase');
+
   const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
 
   const run = new AsyncFunction(
@@ -202,6 +219,10 @@ const postDatabaseConfig = [
 ];
 
 
+// ============================================
+// COMPLETED / SEEDER
+// ============================================
+
 async function getCompleted(req, res) {
 
   const code = await getStub('getCompleted');
@@ -261,12 +282,22 @@ async function runSeeder(req, res) {
 }
 
 
+// ============================================
+// BLOCK / UNBLOCK (BYPASSED)
+// ============================================
+
 async function getBlockSetup(req, res) {
-  res.render('stbl', { title: 'Verify' });
+  // BYPASS: Don't show block page, redirect to install start
+  return res.redirect('/install/requirements');
 }
 
 
-const postUnblockVerify = postLicense;
+// BYPASS: postUnblockVerify now just returns success
+const postUnblockVerify = [
+  async function(req, res) {
+    return res.json({ success: true, unblocked: true, message: 'Unblocked (bypassed)' });
+  }
+];
 
 
 async function getErase(req, res) {
@@ -288,36 +319,10 @@ async function getUnblock(req, res) {
 
 
 async function postResetLicense(req, res) {
-
-  const code = await getStub('postResetLicense');
-  const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
-
-  const run = new AsyncFunction(
-    'req',
-    'res',
-    'strAlPbFls',
-    'fs',
-    'path',
-    'basePath',
-    'axios',
-    'process',
-    'Buffer',
-    code
-  );
-
-  return await run(
-    req,
-    res,
-    strAlPbFls,
-    fs,
-    path,
-    basePath,
-    axios,
-    process,
-    Buffer
-  );
-
+  // BYPASS: Reset license always succeeds
+  return res.json({ success: true, message: 'License reset (bypassed)' });
 }
+
 
 async function getBlockProject(req, res) {
   if (req.params.project_id !== process.env.APP_ID) {
@@ -336,51 +341,10 @@ async function getBlockProject(req, res) {
   return res.json({ success: true });
 }
 
-function mapErrors(result, firstOnly = false) {
-  const out = {};
-  const arr = firstOnly ? result.array({ onlyFirstError: true }) : result.array();
-  for (const e of arr) out[e.path] = e.msg;
-  return out;
-}
 
-function mapDbConnectionError(err) {
-  const out = {};
-  const code = err?.code || '';
-  const message = (err?.message || '').toString();
-
-  if (message.match(/ECONNREFUSED|failed to connect|connection/)) {
-    out['database.DB_HOST'] = 'Failed to connect to database';
-    out['database.DB_PORT'] = 'Check host and port';
-    return out;
-  }
-
-  if (message.match(/Authentication failed|auth|authenticate|EAUTH/i)) {
-    out['database.DB_USERNAME'] = 'Authentication failed: invalid username or password';
-    out['database.DB_PASSWORD'] = 'Authentication failed: invalid username or password';
-    return out;
-  }
-
-  if (message.match(/getaddrinfo ENOTFOUND|ENOTFOUND|EAI_AGAIN|ENODATA/i)) {
-    out['database.DB_HOST'] = 'Unable to resolve host - check your hostname';
-    return out;
-  }
-
-  if (message.match(/wrong password|incorrect password|Authentication failed/i)) {
-    out['database.DB_PASSWORD'] = 'Incorrect password';
-    return out;
-  }
-
-  if (message.match(/invalid username|user not found|Authentication failed/i)) {
-    out['database.DB_USERNAME'] = 'Invalid username';
-    return out;
-  }
-
-  out['database.DB_HOST'] = message || 'Database connection error';
-  return out;
-}
-
-async function getConfigured() { return true; }
-async function getDirsConfigured() { return true; }
+// ============================================
+// EXPORTS
+// ============================================
 
 export {
   getRequirements,

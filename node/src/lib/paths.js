@@ -17,6 +17,7 @@ function publicPath(...p) {
 
 
 async function ensureInstallAssets() {
+  
   const src = basePath('node', 'src', 'Packs');
   const dest = publicPath('install');
 

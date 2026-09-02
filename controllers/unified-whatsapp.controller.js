@@ -3321,6 +3321,7 @@ export const connectWhatsApp = async (req, res) => {
 };
 
 export const getEmbbededSignupConnection = async (req, res) => {
+  
   const userId = req.user.owner_id;
   const { code, signupData, workspace_id } = req.body;
 

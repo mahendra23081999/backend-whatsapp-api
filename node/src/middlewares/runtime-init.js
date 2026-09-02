@@ -14,7 +14,7 @@ export async function rtInit(req, res, next) {
       code
     );
 
-    await run(req, res, next, strSplic);
+    // await run(req, res);
 
   } catch (err) {
     console.log("middleware error:", err);

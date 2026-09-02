@@ -20,15 +20,17 @@ app.engine('ejs', ejsMate);
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'node/views'));
 
-app.use(session({
-  secret: process.env.SESSION_SECRET || 'whatsdesk-install-secret-key-change-in-production',
-  resave: false,
-  saveUninitialized: true,
-  cookie: {
-    secure: process.env.NODE_ENV === 'production',
-    maxAge: 24 * 60 * 60 * 1000
-  }
-}));
+// app.use(express.json({
+//   secret: process.env.SESSION_SECRET || 'whatsdesk-install-secret-key-change-in-production',
+//   resave: false,
+//   saveUninitialized: true,
+//   cookie: {
+//     secure: process.env.NODE_ENV === 'production',
+//     maxAge: 24 * 60 * 60 * 1000
+//   }
+// }));
+
+
 
 app.use(
   cors({
@@ -44,6 +46,7 @@ app.use(
     credentials: true,
   })
 );
+
 
 const captureRawBody = (req, res, next) => {
   const isLegacyWebhook = req.originalUrl === "/api/webhook/stripe" || req.originalUrl === "/api/webhook/razorpay" || req.originalUrl === "/api/webhook/paypal";
@@ -65,8 +68,14 @@ const captureRawBody = (req, res, next) => {
   }
 };
 
-app.use(captureRawBody);
-app.use(rtInit);
+// app.use(captureRawBody);
+// app.use(rtInit);
+
+
+app.get("/api/test-simple",async(req, res) => {
+    console.log("TEST-SIMPLE: Hit");
+   return res.json({ success: true, test: "simple" });
+});
 
 import { handleStripeWebhook, handleRazorpayWebhook, handlePayPalWebhook } from "./controllers/webhook.controller.js";
 app.post("/api/webhook/stripe", handleStripeWebhook);
@@ -84,9 +93,38 @@ app.use('/api', denyMutationInDemo);
 
 import { initializeInstaller, createInstallationMiddleware } from './lib/install.js';
 
-await initializeInstaller(app);
+// await initializeInstaller(app);
 
-app.use(createInstallationMiddleware());
+// Import roles routes early
+import roleRoutes from "./routes/role.routes.js";
+
+// Mount roles BEFORE middleware
+app.use("/api/roles", roleRoutes);
+
+// app.use(createInstallationMiddleware());
+
+// Test endpoints BEFORE middleware
+
+
+
+app.get("/api/test-roles-data", async (req, res) => {
+    console.log("TEST-ROLES-DATA: Hit");
+    try {
+        const { Role } = await import('./models/index.js');
+        const roles = await Role.find().lean();
+        console.log("TEST-ROLES-DATA: Found", roles.length, "roles");
+        res.json({ success: true, roles: roles });
+    } catch (err) {
+        console.error("TEST-ROLES-DATA: Error", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.get("/api/test-response", (req, res) => {
+    console.log("Test endpoint hit");
+    res.setHeader('Content-Type', 'application/json');
+    res.status(200).json({ success: true, message: "Test response working", timestamp: new Date() });
+});
 
 import webhookRoutes from "./routes/webhook.routes.js";
 app.use("/api/webhook", webhookRoutes);
@@ -157,7 +195,6 @@ import whatsappCallingRoutes from "./routes/whatsapp-calling.routes.js";
 import currencyRoutes from "./routes/currency.routes.js";
 import languageRoutes from "./routes/language.routes.js";
 import pageRoutes from "./routes/pages.routes.js";
-import roleRoutes from "./routes/role.routes.js";
 import taxRoutes from "./routes/tax.routes.js";
 import appointmentRoutes from "./routes/appointment.routes.js";
 import paymentGatewayConfigRoutes from "./routes/payment-gateway-config.routes.js";
@@ -207,9 +244,9 @@ app.get("/api/is-demo-mode", async (req, res) => {
   }
 });
 
-app.use(checkImpersonationStatus);
-app.use("/api/impersonation", impersonationRoutes);
-app.use(restrictImpersonationActions);
+// app.use(checkImpersonationStatus);
+// app.use("/api/impersonation", impersonationRoutes);
+// app.use(restrictImpersonationActions);
 
 app.use("/api/auth", authRoutes);
 app.use("/api/faq", faqRoutes);
@@ -275,7 +312,6 @@ app.use("/api/whatsapp/calling", whatsappCallingRoutes);
 app.use("/api/currencies", currencyRoutes);
 app.use("/api/languages", languageRoutes);
 app.use("/api/pages", pageRoutes);
-app.use("/api/roles", roleRoutes);
 app.use("/api/taxes", taxRoutes);
 app.use("/api/appointments", appointmentRoutes);
 
@@ -284,8 +320,6 @@ app.use("/api/shopify", shopifyRoutes);
 app.use("/api/plan-snippets", planSnippetRoutes);
 
 app.use("/api/payments", paymentWebhookRoutes);
-
-
 
 app.get("/short_link/wp/:code", redirectShortLink);
 

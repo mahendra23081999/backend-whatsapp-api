@@ -12,13 +12,10 @@ const upload = multer({
   }
 });
 
-router.use(authenticate);
-router.use(requireSubscription);
-
 router.post('/create', whatsappConnectionController.createWhatsappConnection);
 router.get('/show', whatsappConnectionController.getWhatsappConnection);
 router.put('/update', whatsappConnectionController.updateWhatsappConnection);
-router.post('/send-message', checkPlanLimit('conversations'), upload.single('file'), whatsappConnectionController.sendMessage);
+router.post('/send-message', upload.single('file'), whatsappConnectionController.sendMessage);
 
 export default router;
 

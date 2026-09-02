@@ -28,8 +28,6 @@ import {
   Plan
 } from '../models/index.js';
 
-
-
 const COUNT_FEATURES = [
   'contacts',
   'template_bots',
@@ -187,10 +185,13 @@ export const requirePlanFeature = (feature) => {
   }
 
   return async (req, res, next) => {
+
     if (req.user?.role === 'super_admin') return next();
+
     if (req.isFreeTrial) return next();
 
     const isEnabledInToggles = req.plan?.enabled_features?.[feature] === true || req.plan?.enabled_features?.[feature] === "true";
+    
     const isEnabledInBooleans = req.plan?.features?.[feature] === true || req.plan?.features?.[feature] === "true";
 
     if (!isEnabledInToggles && !isEnabledInBooleans) {
