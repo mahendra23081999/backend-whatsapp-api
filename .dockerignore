@@ -1,0 +1,12 @@
+node_modules
+npm-debug.log
+.git
+.gitignore
+Dockerfile
+cloudbuild.yaml
+.env
+.env.*
+credentials.json
+*.log
+coverage
+.nyc_output
