@@ -50,7 +50,7 @@ async function loadRazorpayKeysFromSettings() {
   }
 }
 
-const PORT =  8080 || 8080;
+const PORT = "";
 
 const httpServer = createServer(app);
 
