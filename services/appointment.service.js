@@ -107,6 +107,7 @@ class AppointmentService {
   }
 
   async createBooking({ configId, contactId, userId, startTime, endTime, answers = {}, whatsappPhoneNumberId = null }) {
+
     const config = await AppointmentConfig.findById(configId);
     if (!config) throw new Error('Configuration not found');
 
@@ -163,8 +164,10 @@ class AppointmentService {
     }
 
     if (config.google_account_id && config.sheet_id) {
+
       try {
         const sheets = await getSheetsClient(config.google_account_id);
+
         const rowData = [
           moment(startTime).format('YYYY-MM-DD HH:mm'),
           answers.name || '',
@@ -180,6 +183,7 @@ class AppointmentService {
           valueInputOption: 'USER_ENTERED',
           requestBody: { values: [rowData] }
         });
+        
         console.log(`[appointment_service] Google Sheet synced for booking: ${booking._id}`);
       } catch (err) {
         console.error('[appointment_service] Google Sheet Sync Error (Non-blocking):', err.message);

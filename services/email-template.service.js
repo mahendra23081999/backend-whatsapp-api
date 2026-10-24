@@ -13,6 +13,7 @@ const __dirname = path.dirname(__filename);
 class EmailTemplateService {
   async send(slug, to, data = {}, attachments = []) {
     try {
+      
       const template = await EmailTemplate.findOne({ slug, deleted_at: null });
       if (!template) {
         console.error(`Email template with slug "${slug}" not found.`);

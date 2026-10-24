@@ -72,6 +72,7 @@ const isCoexistenceSignup = (signupData = {}, phoneData = {}) => {
 };
 
 const subscribeWabaToApp = async (wabaId, accessToken) => {
+
   return axios.post(
     `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${wabaId}/subscribed_apps`,
     {},
@@ -3325,16 +3326,24 @@ export const getEmbbededSignupConnection = async (req, res) => {
   const userId = req.user.owner_id;
   const { code, signupData, workspace_id } = req.body;
 
-  if (!code || !signupData?.waba_id || !signupData?.phone_number_id || !signupData.business_id) {
+  if (!signupData?.business_id) {
+    console.warn('Embedded signup payload missing business_id:', JSON.stringify(signupData));
+  }
+
+  if (!code || !signupData?.waba_id || !signupData?.phone_number_id) {
+
     return res.status(400).json({
       success: false,
+      message: 'Invalid signup payload',
       error: 'Invalid signup payload'
     });
+    
   }
 
   if (processedAuthCodes.has(code)) {
     return res.status(400).json({
       success: false,
+      message: 'This authorization code has already been processed or is currently being processed.',
       error: 'This authorization code has already been processed or is currently being processed.'
     });
   }
@@ -3349,6 +3358,7 @@ export const getEmbbededSignupConnection = async (req, res) => {
     if (!metaSettings?.app_id || !metaSettings?.app_secret) {
       return res.status(500).json({
         success: false,
+        message: 'Meta app configuration not found',
         error: 'Meta app configuration not found'
       });
     }
@@ -3389,15 +3399,17 @@ export const getEmbbededSignupConnection = async (req, res) => {
       phone_number_id: signupData.phone_number_id
     });
 
-    if (phoneNumber && phoneNumber.user_id.toString() !== userId.toString() && phoneNumber.deleted_at === null) {
+    if (phoneNumber && phoneNumber.user_id.toString() !== userId.toString() && !phoneNumber.deleted_at) {
       return res.status(400).json({
         success: false,
+        message: 'This WhatsApp phone number is already connected to another workspace or user.',
         error: 'This WhatsApp phone number is already connected to another workspace or user.'
       });
     }
 
     if (workspace_id) {
       const existingWaba = await WhatsappWaba.findOne({
+        user_id: userId,
         workspace_id: workspace_id,
         whatsapp_business_account_id: { $ne: signupData.waba_id }
       });
@@ -3427,8 +3439,8 @@ export const getEmbbededSignupConnection = async (req, res) => {
       });
     } else {
       waba.access_token = accessToken;
-      waba.business_id = signupData.business_id,
-        waba.workspace_id = workspace_id || waba.workspace_id;
+      waba.business_id = signupData.business_id;
+      waba.workspace_id = workspace_id || waba.workspace_id;
       waba.name = verified_name || display_phone_number;
       waba.is_active = true;
       waba.deleted_at = null;
@@ -3460,27 +3472,32 @@ export const getEmbbededSignupConnection = async (req, res) => {
       });
     }
 
-    // if (!isCoexistence) {
-    //   try {
-    //     await axios.post(
-    //       `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${signupData.phone_number_id}/register`,
-    //       {
-    //         messaging_product: "whatsapp",
-    //         pin: signupData.pin || req.body.pin || process.env.WHATSAPP_DEFAULT_PIN || "123456"
-    //       },
-    //       {
-    //         headers: {
-    //           Authorization: `Bearer ${accessToken}`,
-    //           'Content-Type': 'application/json'
-    //         }
-    //       }
-    //     );
-    //   } catch (regErr) {
-    //     if (!isAlreadyRegisteredError(regErr)) {
-    //       throw regErr;
-    //     }
-    //   }
-    // }
+    // Cloud API numbers must be registered before they can send messages.
+    // Coexistence numbers are already registered via the Business App.
+    let registrationError = null;
+    if (!isCoexistence) {
+      try {
+        await axios.post(
+          `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${signupData.phone_number_id}/register`,
+          {
+            messaging_product: "whatsapp",
+            pin: signupData.pin || req.body.pin || process.env.WHATSAPP_DEFAULT_PIN || "123456"
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json'
+            }
+          }
+        );
+      } catch (regErr) {
+        if (!isAlreadyRegisteredError(regErr)) {
+          // Connection is already saved; report instead of failing the whole signup
+          console.error('Phone number registration failed:', regErr.response?.data || regErr.message);
+          registrationError = regErr.response?.data?.error?.message || regErr.message;
+        }
+      }
+    }
 
     return res.json({
       success: true,
@@ -3498,11 +3515,15 @@ export const getEmbbededSignupConnection = async (req, res) => {
         is_coexistence: isCoexistence,
         webhook_subscribed: true,
         is_new_waba: isNewWaba,
-        is_new_phone: isNewPhone
+        is_new_phone: isNewPhone,
+        registered: !registrationError,
+        registration_error: registrationError
       }
     });
   } catch (err) {
+    
     console.error('Embedded signup failed:', err.response?.data || err.message);
+    processedAuthCodes.delete(code);
 
     const errorData = err.response?.data?.error || {};
     const errorMessage = errorData.message || 'Embedded signup failed';
@@ -3512,6 +3533,7 @@ export const getEmbbededSignupConnection = async (req, res) => {
 
     return res.status(statusCode).json({
       success: false,
+      message: errorMessage,
       error: errorMessage,
       subcode: subcode
     });
@@ -4244,10 +4266,11 @@ export const getBaileysQRCode = async (req, res) => {
     const { wabaId } = req.params;
     const syncChat = req.query.sync_chat === 'true';
 
-    if (!wabaId) {
+    if (!wabaId || !mongoose.Types.ObjectId.isValid(wabaId)) {
       return res.status(400).json({
         success: false,
-        error: 'WABA ID is required'
+        message: 'Valid WABA ID is required',
+        error: 'Valid WABA ID is required'
       });
     }
 
@@ -4257,7 +4280,7 @@ export const getBaileysQRCode = async (req, res) => {
     } catch (qrErr) {
       const waba = await WhatsappWaba.findOne({ _id: wabaId, user_id: userId, deleted_at: null }).lean();
       if (!waba) {
-        return res.status(404).json({ success: false, error: 'WABA not found' });
+        return res.status(404).json({ success: false, message: 'WABA not found', error: 'WABA not found' });
       }
       console.log(`QR requested for disconnected WABA ${wabaId}, triggering initialization... (sync_chat=${syncChat})`);
       unifiedWhatsAppService
@@ -4304,6 +4327,7 @@ export const getBaileysQRCode = async (req, res) => {
     console.error('Error fetching Baileys QR code:', error);
     return res.status(500).json({
       success: false,
+      message: `Failed to fetch QR code: ${error.message}`,
       error: 'Failed to fetch QR code',
       details: error.message
     });

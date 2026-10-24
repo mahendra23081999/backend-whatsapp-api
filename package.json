@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "nodemon server.js",
+    "postinstall": "node scripts/patch-baileys-pro.js",
     "migrate-whatsapp": "node utils/migrate-whatsapp-structure.js",
     "seed": "node seeder/index.js"
   },

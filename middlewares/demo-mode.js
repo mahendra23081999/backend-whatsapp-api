@@ -22,7 +22,7 @@ export async function isDemoMode() {
 
     console.log("setting" , value)
     cached = { value, at: now };
-    return true;
+    return value;
   } catch (err) {
     console.error('demo-mode middleware: failed to read setting', err);
     return false;

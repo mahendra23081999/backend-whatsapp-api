@@ -22,8 +22,10 @@ const validateTaxData = (taxData) => {
 
 export const createTax = async (req, res) => {
     try {
+        
         const taxData = req.body;
         const validation = validateTaxData(taxData);
+
         if (!validation.isValid) {
             return res.status(400).json({
                 success: false,
@@ -45,6 +47,7 @@ export const createTax = async (req, res) => {
             message: 'Tax created successfully',
             data: tax
         });
+
     } catch (error) {
         console.error('Error creating tax:', error);
         return res.status(500).json({

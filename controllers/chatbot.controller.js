@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import axios from 'axios';
 import fs from 'fs';
 import { createRequire } from 'module';
+
 const require = createRequire(import.meta.url);
 if (typeof global.DOMMatrix === 'undefined') {
     global.DOMMatrix = class DOMMatrix {};
@@ -10,6 +11,7 @@ if (typeof global.DOMMatrix === 'undefined') {
 const pdf = require('pdf-parse');
 
 const buildSystemPrompt = (data) => {
+    
     const { business_name, business_description, training_data, raw_training_text } = data;
 
     let prompt = `You are an AI assistant for ${business_name || 'our business'}.\n`;
@@ -19,6 +21,7 @@ const buildSystemPrompt = (data) => {
     }
 
     if (training_data && training_data.length > 0) {
+
         prompt += `\nHere are some Frequently Asked Questions and their answers to help you guide the customer:\n`;
         training_data.forEach((item, index) => {
             prompt += `${index + 1}. Q: ${item.question}\n   A: ${item.answer}\n`;
@@ -26,6 +29,7 @@ const buildSystemPrompt = (data) => {
     }
 
     if (raw_training_text) {
+
         prompt += `\nAdditional Context:\n${raw_training_text}\n`;
     }
 
@@ -36,19 +40,23 @@ const buildSystemPrompt = (data) => {
 
 export const createChatbot = async (req, res) => {
     try {
+
         const userId = req.user.owner_id;
         const { name, ai_model, api_key, business_name, business_description } = req.body;
 
-        if (!name || !ai_model || !api_key) {
+        if (!name || !ai_model || !api_key) { 
             return res.status(400).json({ success: false, message: 'name, ai_model, and api_key are required' });
         }
 
         const model = await AIModel.findOne({ _id: ai_model, status: 'active', deleted_at: null });
+
         if (!model) {
+
             return res.status(404).json({
                 success: false,
                 message: 'AI Model not found or inactive'
             });
+
         }
 
         const system_prompt = buildSystemPrompt({ business_name, business_description });
@@ -69,6 +77,7 @@ export const createChatbot = async (req, res) => {
             message: 'Chatbot created successfully',
             data: chatbot
         });
+
     } catch (error) {
         console.error('Create chatbot error:', error);
         return res.status(500).json({
@@ -81,6 +90,7 @@ export const createChatbot = async (req, res) => {
 
 export const getAllChatbots = async (req, res) => {
     try {
+        
         const userId = req.user.owner_id;
         const { search } = req.query;
 

@@ -3,6 +3,7 @@ import { isWithinWorkingHours, sendAutomatedReply } from './automated-response.s
 import mongoose from 'mongoose';
 
 class AutomatedResponseWorker {
+    
     constructor() {
         this.interval = null;
         this.checkIntervalMs = 60000;

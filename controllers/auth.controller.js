@@ -5,7 +5,7 @@ import { User, Session, Setting, OTPLog, Subscription, Plan, Role, RolePermissio
 import { sendMail } from '../utils/mail.js';
 import UnifiedWhatsAppService from '../services/whatsapp/unified-whatsapp.service.js';
 import OTPService from '../services/otp.service.js';
-import { getRedisClient } from '../utils/redis.js';
+import { savePendingUser, getPendingUser, deletePendingUser } from '../utils/pending-user-store.js';
 import EmailTemplateService from '../services/email-template.service.js';
 const OTP_LENGTH = 6;
 const OTP_EXPIRATION_MINUTES = 10;
@@ -134,16 +134,18 @@ const createUserSession = async (params) => {
 };
 
 
-const getOTPExpirationTime = () => {
+const getOTPExpirationTime = () => { 
   return new Date(Date.now() + OTP_EXPIRATION_MINUTES * 60 * 1000);
 };
 
 
 const sendOTPEmail = async (email, otp, userName = 'User') => {
+
   await EmailTemplateService.send('registration-otp', email, {
     otp_code: otp,
     user_name: userName
   });
+
 };
 
 const finalizeUserCreation = async (pendingUser, isSmtpConfigured = true) => {
@@ -341,6 +343,7 @@ export const register = async (req, res) => {
     };
 
     const isSmtpConfigured = checkIsSmtpConfigured(settings);
+    console.log("isSmtpConfigured" ,isSmtpConfigured);
     const otpChannel = settings?.otp_delivery_method || 'email';
     const isDemoMode = settings?.is_demo_mode || false;
     console.log("otpChannel" ,otpChannel);
@@ -357,6 +360,7 @@ export const register = async (req, res) => {
           isTemplateAssigned = true;
         }
       }
+
     console.log("isWabaConfigured" ,isWabaConfigured , isTemplateAssigned);
 
       if (!isWabaConfigured || !isTemplateAssigned) {
@@ -366,12 +370,12 @@ export const register = async (req, res) => {
 
 
     if (shouldUseDemoOTP) {
+
       const demoOTP = '123456';
       const hashedOTP = await OTPService.hashOTP(demoOTP);
       const expiresAt = getOTPExpirationTime();
 
-      const redisClient = getRedisClient();
-      await redisClient.setex(`pending_user:${normalizedEmail}`, 600, JSON.stringify(pendingUser));
+      await savePendingUser(normalizedEmail, pendingUser, 600);
 
       await OTPLog.create({
         email: normalizedEmail,
@@ -392,10 +396,10 @@ export const register = async (req, res) => {
           demo_otp: demoOTP
         }
       });
+      
     }
 
-    const redisClient = getRedisClient();
-    await redisClient.setex(`pending_user:${normalizedEmail}`, 600, JSON.stringify(pendingUser));
+    await savePendingUser(normalizedEmail, pendingUser, 600);
 
     const otp = await OTPService.generateOTP();
     const hashedOTP = await OTPService.hashOTP(otp);
@@ -415,10 +419,9 @@ export const register = async (req, res) => {
     const otpResult = await OTPService.sendOTPBySettings(normalizedEmail, otp, { phone, country_code: countryCode, user_name: name });
     if (!otpResult) {
       try {
-        const redisClient = getRedisClient();
-        await redisClient.del(`pending_user:${normalizedEmail}`);
-      } catch (redisErr) {
-        console.error('Failed to clear pending user from Redis:', redisErr);
+        await deletePendingUser(normalizedEmail);
+      } catch (pendingErr) {
+        console.error('Failed to clear pending user:', pendingErr);
       }
 
       pendingUser.is_verified = true;
@@ -1256,9 +1259,7 @@ export const resendSignUpOTP = async (req, res) => {
 
     if (!user) {
       if (validation.type === 'email') {
-        const redisClient = getRedisClient();
-        const pendingStr = await redisClient.get(`pending_user:${validation.normalizedValue}`);
-        if (pendingStr) pendingUser = JSON.parse(pendingStr);
+        pendingUser = await getPendingUser(validation.normalizedValue);
       }
       if (!pendingUser) return res.status(404).json({ success: false, message: 'User not found' });
     }
@@ -1327,13 +1328,10 @@ export const verifySignUpOTP = async (req, res) => {
 
     let user = await findUserByIdentifier(validation.normalizedValue, validation.type);
     let pendingUser = null;
-    let redisClient = null;
 
     if (!user) {
       if (validation.type === 'email') {
-        redisClient = getRedisClient();
-        const pendingStr = await redisClient.get(`pending_user:${validation.normalizedValue}`);
-        if (pendingStr) pendingUser = JSON.parse(pendingStr);
+        pendingUser = await getPendingUser(validation.normalizedValue);
       }
       if (!pendingUser) return res.status(404).json({ success: false, message: 'User not found' });
     }
@@ -1359,9 +1357,7 @@ export const verifySignUpOTP = async (req, res) => {
     const isDemoMode = settings?.is_demo_mode || false;
 
     if (pendingUser) {
-      if (redisClient) {
-        await redisClient.del(`pending_user:${validation.normalizedValue}`);
-      }
+      await deletePendingUser(validation.normalizedValue);
 
       pendingUser.is_verified = true;
       if (otpLog.channel === 'email') pendingUser.email_verified = true;
