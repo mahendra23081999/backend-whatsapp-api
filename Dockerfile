@@ -14,6 +14,9 @@ WORKDIR /app
 # Copy package files first for better Docker layer caching
 COPY package*.json ./
 
+# postinstall runs scripts/patch-baileys-pro.js, so it must exist before npm install
+COPY scripts ./scripts
+
 # Install dependencies
 RUN npm install
 
