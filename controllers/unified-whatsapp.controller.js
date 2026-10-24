@@ -71,11 +71,22 @@ const isCoexistenceSignup = (signupData = {}, phoneData = {}) => {
     || phoneData.is_on_biz_app === true;
 };
 
+// Meta only accepts an absolute HTTPS override_callback_uri. The seeded setting is a
+// relative path ("webhook/whatsapp"), so relative values are resolved against APP_URL.
+const resolveWebhookUrl = (value, baseUrl) => {
+  if (!value) return null;
+  const trimmed = String(value).trim().replace(/^['"]|['"]$/g, '');
+  if (/^https:\/\//i.test(trimmed)) return trimmed;
+  if (/^https?:\/\//i.test(trimmed) || !baseUrl) return null;
+  return `${baseUrl.replace(/\/+$/, '')}/${trimmed.replace(/^\/+/, '')}`;
+};
+
 const getWebhookOverrideConfig = (settings = {}) => {
-  const callbackUri = settings.whatsapp_webhook_url
-    || process.env.WHATSAPP_WEBHOOK_URL
-    || (process.env.APP_URL ? `${process.env.APP_URL.replace(/\/+$/, '')}/webhook/whatsapp` : null);
-  const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN || settings.webhook_verification_token;
+  const baseUrl = process.env.APP_URL?.trim().replace(/^['"]|['"]$/g, '');
+  const callbackUri = resolveWebhookUrl(process.env.WHATSAPP_WEBHOOK_URL, baseUrl)
+    || resolveWebhookUrl(settings.whatsapp_webhook_url, baseUrl)
+    || resolveWebhookUrl('webhook/whatsapp', baseUrl);
+  const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN?.trim() || settings.webhook_verification_token;
 
   return { callbackUri, verifyToken };
 };
