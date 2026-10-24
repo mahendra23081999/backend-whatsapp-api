@@ -3322,7 +3322,8 @@ export const connectWhatsApp = async (req, res) => {
 
       let waba = await WhatsappWaba.create({
         user_id: userId,
-        workspace_id: workspace_id || null,
+        // Omit rather than null: the sparse unique index still indexes null, so a second null collides
+        ...(workspace_id ? { workspace_id } : {}),
         name: finalInstanceName,
         instance_name: finalInstanceName,
         provider: PROVIDER_TYPES.BAILEY,

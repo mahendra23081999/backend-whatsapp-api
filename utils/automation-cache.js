@@ -9,7 +9,6 @@ class AutomationCache {
     this.nodeTypesCache = new NodeCache({ stdTTL: 3600 });
   }
 
-
   setFlow(flowId, flowData) {
     const plainFlowData = flowData && typeof flowData.toObject === 'function'
       ? flowData.toObject()
@@ -17,16 +16,13 @@ class AutomationCache {
     return this.flowCache.set(flowId, plainFlowData);
   }
 
-
   getFlow(flowId) {
     return this.flowCache.get(flowId);
   }
 
-
   deleteFlow(flowId) {
     return this.flowCache.del(flowId);
   }
-
 
   setExecution(executionId, executionData) {
     const plainExecutionData = executionData && typeof executionData.toObject === 'function'
@@ -35,11 +31,9 @@ class AutomationCache {
     return this.executionCache.set(executionId, plainExecutionData);
   }
 
-
   getExecution(executionId) {
     return this.executionCache.get(executionId);
   }
-
 
   setTriggers(userId, triggers) {
     const plainTriggers = triggers && Array.isArray(triggers)
@@ -52,23 +46,17 @@ class AutomationCache {
     return this.triggerCache.set(`triggers_${userId}`, plainTriggers);
   }
 
-
   getTriggers(userId) {
     return this.triggerCache.get(`triggers_${userId}`);
   }
-
-
   getNodeTypes() {
     return this.nodeTypesCache.get('node_types');
   }
-
-
   setNodeTypes(nodeTypes) {
     return this.nodeTypesCache.set('node_types', nodeTypes);
   }
 
-
-  clearUserCache(userId) {
+  clearUserCache(userId) { 
     this.triggerCache.del(`triggers_${userId}`);
 
     return {
@@ -80,7 +68,6 @@ class AutomationCache {
       }
     };
   }
-
 
   async preloadUserFlows(userId) {
     try {
@@ -121,7 +108,6 @@ class AutomationCache {
       return 0;
     }
   }
-
 
   async getUserActiveFlows(userId) {
     console.log(`Getting active flows for user: ${userId}`);
@@ -166,12 +152,10 @@ class AutomationCache {
     return triggers;
   }
 
-
   invalidateFlowCache(flowId, userId) {
     this.deleteFlow(flowId);
     this.triggerCache.del(`triggers_${userId}`);
   }
-
 
   getStats() {
     return {
@@ -181,8 +165,7 @@ class AutomationCache {
       nodeTypesCache: this.nodeTypesCache.getStats()
     };
   }
-
-
+  
   async preloadAllUserFlows() {
     try {
       const userIds = await AutomationFlow.distinct('user_id', { is_active: true, deleted_at: null });
