@@ -859,7 +859,16 @@ class AutomationEngine {
 
     const strField = String(fieldValue ?? '').toLowerCase();
     const strFieldExact = String(fieldValue ?? '');
-    const valueArray = Array.isArray(value) ? value : [value];
+    const keywordOperators = ['equals', 'equals_any', 'not_equals', 'contains', 'contains_any', 'not_contains', 'starts_with', 'ends_with'];
+    let valueArray = Array.isArray(value) ? value : [value];
+    // Keywords entered as "Hello,hi,HI" are stored as a single string; split them into separate keywords
+    if (field === 'message' && keywordOperators.includes(operator)) {
+      valueArray = valueArray.flatMap(v =>
+        typeof v === 'string' && v.includes(',')
+          ? v.split(',').map(s => s.trim()).filter(Boolean)
+          : [v]
+      );
+    }
 
     const cleanSystemPrefixes = (val) => {
       if (typeof val !== 'string') return val;
