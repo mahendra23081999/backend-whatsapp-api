@@ -71,18 +71,45 @@ const isCoexistenceSignup = (signupData = {}, phoneData = {}) => {
     || phoneData.is_on_biz_app === true;
 };
 
-const subscribeWabaToApp = async (wabaId, accessToken) => {
+const getWebhookOverrideConfig = (settings = {}) => {
+  const callbackUri = settings.whatsapp_webhook_url
+    || process.env.WHATSAPP_WEBHOOK_URL
+    || (process.env.APP_URL ? `${process.env.APP_URL.replace(/\/+$/, '')}/webhook/whatsapp` : null);
+  const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN || settings.webhook_verification_token;
 
-  return axios.post(
-    `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${wabaId}/subscribed_apps`,
-    {},
-    {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      }
+  return { callbackUri, verifyToken };
+};
+
+// Subscribes the WABA to the app and overrides its webhook callback URL (WABA level).
+// See https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/override/
+const subscribeWabaToApp = async (wabaId, accessToken, override = {}) => {
+  const url = `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${wabaId}/subscribed_apps`;
+  const config = {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
     }
-  );
+  };
+
+  if (!override.callbackUri || !override.verifyToken) {
+    console.warn('[EmbeddedSignup] Webhook override skipped - callback URL or verify token not configured');
+    await axios.post(url, {}, config);
+    return { overridden: false, callbackUri: null };
+  }
+
+  try {
+    await axios.post(url, {
+      override_callback_uri: override.callbackUri,
+      verify_token: override.verifyToken
+    }, config);
+    console.log('[EmbeddedSignup] Webhook callback overridden for WABA', wabaId, '->', override.callbackUri);
+    return { overridden: true, callbackUri: override.callbackUri };
+  } catch (err) {
+    // Fall back to a plain subscription so the signup still completes
+    console.error('[EmbeddedSignup] Webhook override failed, subscribing without override:', JSON.stringify(err.response?.data || err.message));
+    await axios.post(url, {}, config);
+    return { overridden: false, callbackUri: null, error: err.response?.data?.error?.message || err.message };
+  }
 };
 
 
@@ -3325,13 +3352,22 @@ export const getEmbbededSignupConnection = async (req, res) => {
   
   const userId = req.user.owner_id;
   const { code, signupData, workspace_id } = req.body;
+  let step = 'validate_payload';
+
+  console.log('[EmbeddedSignup] Request received:', JSON.stringify({
+    userId,
+    workspace_id,
+    has_code: !!code,
+    code_length: code?.length,
+    signupData
+  }));
 
   if (!signupData?.business_id) {
     console.warn('Embedded signup payload missing business_id:', JSON.stringify(signupData));
   }
 
   if (!code || !signupData?.waba_id || !signupData?.phone_number_id) {
-
+    console.error('[EmbeddedSignup] Invalid payload - missing code, waba_id or phone_number_id');
     return res.status(400).json({
       success: false,
       message: 'Invalid signup payload',
@@ -3341,6 +3377,7 @@ export const getEmbbededSignupConnection = async (req, res) => {
   }
 
   if (processedAuthCodes.has(code)) {
+    console.error('[EmbeddedSignup] Duplicate authorization code - request rejected');
     return res.status(400).json({
       success: false,
       message: 'This authorization code has already been processed or is currently being processed.',
@@ -3353,9 +3390,17 @@ export const getEmbbededSignupConnection = async (req, res) => {
 
   try {
 
+    step = 'load_meta_settings';
     const metaSettings = await Setting.findOne().lean();
 
+    console.log('[EmbeddedSignup] Meta settings:', JSON.stringify({
+      app_id: metaSettings?.app_id,
+      has_app_secret: !!metaSettings?.app_secret,
+      graph_version: META_GRAPH_API_VERSION
+    }));
+
     if (!metaSettings?.app_id || !metaSettings?.app_secret) {
+      console.error('[EmbeddedSignup] Meta app_id/app_secret missing in settings');
       return res.status(500).json({
         success: false,
         message: 'Meta app configuration not found',
@@ -3365,6 +3410,7 @@ export const getEmbbededSignupConnection = async (req, res) => {
 
     const { app_id: APP_ID, app_secret: APP_SECRET } = metaSettings;
 
+    step = 'exchange_code_for_token';
     const tokenRes = await axios.get(
       `https://graph.facebook.com/${META_GRAPH_API_VERSION}/oauth/access_token`,
       {
@@ -3377,9 +3423,17 @@ export const getEmbbededSignupConnection = async (req, res) => {
     );
 
     const accessToken = tokenRes.data.access_token;
+    console.log('[EmbeddedSignup] Token exchange OK, token_type:', tokenRes.data.token_type);
 
-    await subscribeWabaToApp(signupData.waba_id, accessToken);
+    step = 'subscribe_waba_to_app';
+    const webhookOverride = await subscribeWabaToApp(
+      signupData.waba_id,
+      accessToken,
+      getWebhookOverrideConfig(metaSettings)
+    );
+    console.log('[EmbeddedSignup] WABA subscribed to app:', signupData.waba_id);
 
+    step = 'fetch_phone_number';
     const phoneRes = await axios.get(
       `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${signupData.phone_number_id}`,
       {
@@ -3394,12 +3448,15 @@ export const getEmbbededSignupConnection = async (req, res) => {
 
     const { display_phone_number, verified_name, quality_rating } = phoneRes.data;
     const isCoexistence = isCoexistenceSignup(signupData, phoneRes.data);
+    console.log('[EmbeddedSignup] Phone number details:', JSON.stringify({ ...phoneRes.data, isCoexistence }));
 
+    step = 'save_connection';
     let phoneNumber = await WhatsappPhoneNumber.findOne({
       phone_number_id: signupData.phone_number_id
     });
 
     if (phoneNumber && phoneNumber.user_id.toString() !== userId.toString() && !phoneNumber.deleted_at) {
+      console.error('[EmbeddedSignup] Phone number already owned by another user:', phoneNumber.user_id.toString());
       return res.status(400).json({
         success: false,
         message: 'This WhatsApp phone number is already connected to another workspace or user.',
@@ -3474,6 +3531,9 @@ export const getEmbbededSignupConnection = async (req, res) => {
 
     // Cloud API numbers must be registered before they can send messages.
     // Coexistence numbers are already registered via the Business App.
+    console.log('[EmbeddedSignup] Connection saved:', JSON.stringify({ waba: waba._id, phone: phoneNumber._id, isNewWaba, isNewPhone }));
+
+    step = 'register_phone_number';
     let registrationError = null;
     if (!isCoexistence) {
       try {
@@ -3514,6 +3574,9 @@ export const getEmbbededSignupConnection = async (req, res) => {
         platform_type: phoneRes.data.platform_type,
         is_coexistence: isCoexistence,
         webhook_subscribed: true,
+        webhook_overridden: webhookOverride.overridden,
+        webhook_callback_url: webhookOverride.callbackUri,
+        webhook_override_error: webhookOverride.error || null,
         is_new_waba: isNewWaba,
         is_new_phone: isNewPhone,
         registered: !registrationError,
@@ -3522,11 +3585,17 @@ export const getEmbbededSignupConnection = async (req, res) => {
     });
   } catch (err) {
     
-    console.error('Embedded signup failed:', err.response?.data || err.message);
+    console.error(`[EmbeddedSignup] FAILED at step "${step}":`, JSON.stringify({
+      status: err.response?.status,
+      meta_error: err.response?.data,
+      message: err.message,
+      url: err.config?.url
+    }));
+    if (!err.response) console.error(err.stack);
     processedAuthCodes.delete(code);
 
     const errorData = err.response?.data?.error || {};
-    const errorMessage = errorData.message || 'Embedded signup failed';
+    const errorMessage = errorData.message || err.message || 'Embedded signup failed';
     const subcode = errorData.error_subcode;
 
     const statusCode = err.response?.status || 500;
@@ -3535,7 +3604,10 @@ export const getEmbbededSignupConnection = async (req, res) => {
       success: false,
       message: errorMessage,
       error: errorMessage,
-      subcode: subcode
+      step,
+      code: errorData.code,
+      subcode: subcode,
+      fbtrace_id: errorData.fbtrace_id
     });
   }
 };

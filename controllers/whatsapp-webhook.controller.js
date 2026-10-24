@@ -33,7 +33,11 @@ export const handleWebhookVerification = async (req, res) => {
       return res.status(200).send(challenge);
     }
 
-    const setting = await Setting.findOne().select('facebook_lead_webhook_verify_token instagram_webhook_verify_token').lean();
+    const setting = await Setting.findOne().select('webhook_verification_token facebook_lead_webhook_verify_token instagram_webhook_verify_token').lean();
+
+    if (setting?.webhook_verification_token && token === setting.webhook_verification_token) {
+      return res.status(200).send(challenge);
+    }
     const fbToken = setting?.facebook_lead_webhook_verify_token ||
       process.env.FACEBOOK_LEAD_WEBHOOK_VERIFY_TOKEN;
 
