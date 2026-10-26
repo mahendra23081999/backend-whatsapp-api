@@ -334,7 +334,8 @@ export default class BaileysProvider extends BaseProvider {
             });
 
             sock.ev.on('messaging-history.set', async (data) => {
-                if (!syncChat) {
+                const wabaDoc = await WhatsappWaba.findById(wabaId).select('sync_chat').lean();
+                if (!(wabaDoc?.sync_chat ?? syncChat)) {
                     console.log(`History sync skipped for WABA ${wabaId} (sync_chat=false)`);
                     return;
                 }
@@ -1598,14 +1599,22 @@ export default class BaileysProvider extends BaseProvider {
 
             if (messages && messages.length > 0) {
                 console.log(`Syncing ${messages.length} historical messages...`);
-                const phone = await WhatsappPhoneNumber.findOne({ waba_id: wabaId }).lean();
+                // History arrives right after 'open', often before the phone record created there is saved
+                let phone = null;
+                for (let attempt = 0; attempt < 15 && !phone; attempt++) {
+                    phone = await WhatsappPhoneNumber.findOne({ waba_id: wabaId }).lean();
+                    if (!phone) await delay(1000);
+                }
                 if (!phone) {
                     console.log(`Phone not found for WABA ${wabaId}, skipping historical message ingestion.`);
                     return;
                 }
                 const myNumber = phone.display_phone_number;
+                const sock = this.sockets.get(wabaId.toString());
+                const contactCache = new Map();
 
                 const messageBulkOps = [];
+                let skipped = 0;
 
                 for (const msgObj of messages) {
                     try {
@@ -1616,14 +1625,20 @@ export default class BaileysProvider extends BaseProvider {
                         if (!remoteJid || remoteJid === 'status@broadcast' || remoteJid.endsWith('@g.us')) continue;
 
                         const senderJid = msg.key.remoteJidAlt || remoteJid;
-                        if (!senderJid.endsWith('@s.whatsapp.net')) continue;
+                        if (!senderJid.endsWith('@s.whatsapp.net') && !senderJid.endsWith('@lid')) continue;
 
-                        const senderNumber = senderJid.split('@')[0];
+                        let senderNumber = senderJid.split('@')[0];
+                        if (senderJid.endsWith('@lid')) {
+                            try {
+                                const pnJid = await sock?.signalRepository?.lidMapping?.getPNForLID?.(senderJid);
+                                if (pnJid?.endsWith('@s.whatsapp.net')) senderNumber = pnJid.split('@')[0];
+                            } catch { }
+                        }
                         const fromMe = msg.key.fromMe;
 
-                        const timestamp = msg.messageTimestamp ? new Date(msg.messageTimestamp * 1000) : new Date();
+                        const timestamp = msg.messageTimestamp ? new Date(Number(msg.messageTimestamp) * 1000) : new Date();
 
-                        const unwrapped = this.unwrapMessage(msg.message);
+                        const unwrapped = msg.message ? this.unwrapMessage(msg.message) : null;
                         if (!unwrapped) continue;
 
                         const messageType = this.getBaileysMessageType(unwrapped);
@@ -1635,16 +1650,27 @@ export default class BaileysProvider extends BaseProvider {
                             reactionMessageId = unwrapped?.reactionMessage?.key?.id || null;
                         }
 
-                        if (!fromMe) {
-                            const contactName = msg.pushName || senderNumber;
-                            await Contact.updateOne(
-                                { phone_number: senderNumber, created_by: userId },
+                        // The chat views query messages by contact_id + whatsapp_phone_number_id, so both must be set
+                        let contact = contactCache.get(senderNumber);
+                        if (!contact) {
+                            contact = await Contact.findOneAndUpdate(
                                 {
-                                    $setOnInsert: { user_id: userId, created_by: userId, source: 'baileys' },
-                                    $set: { name: contactName }
+                                    created_by: userId,
+                                    $or: [{ phone_number: senderNumber }, { 'metadata.whatsapp_lid': senderNumber }]
                                 },
-                                { upsert: true }
-                            ).catch(() => { });
+                                {
+                                    $setOnInsert: {
+                                        phone_number: senderNumber,
+                                        name: (!fromMe && msg.pushName) || senderNumber,
+                                        user_id: userId,
+                                        created_by: userId,
+                                        source: 'baileys',
+                                        ...(senderJid.endsWith('@lid') ? { metadata: { whatsapp_lid: senderNumber } } : {})
+                                    }
+                                },
+                                { upsert: true, new: true }
+                            ).lean();
+                            contactCache.set(senderNumber, contact);
                         }
 
                         let fileUrl = null;
@@ -1653,6 +1679,7 @@ export default class BaileysProvider extends BaseProvider {
                             sender_number: fromMe ? myNumber : senderNumber,
                             recipient_number: fromMe ? senderNumber : myNumber,
                             user_id: userId,
+                            wa_jid: senderJid,
                             content: content,
                             message_type: messageType,
                             file_url: fileUrl,
@@ -1680,7 +1707,11 @@ export default class BaileysProvider extends BaseProvider {
                         messageBulkOps.push({
                             updateOne: {
                                 filter: { wa_message_id: msg.key.id },
-                                update: { $setOnInsert: messagePayload },
+                                // $set also repairs rows saved by earlier syncs without these links
+                                update: {
+                                    $setOnInsert: messagePayload,
+                                    $set: { contact_id: contact._id, whatsapp_phone_number_id: phone._id }
+                                },
                                 upsert: true
                             }
                         });
@@ -1692,6 +1723,8 @@ export default class BaileysProvider extends BaseProvider {
                         }
 
                     } catch (err) {
+                        skipped++;
+                        if (skipped <= 5) console.error(`Skipping historical message for WABA ${wabaId}:`, err.message);
                     }
                 }
 
@@ -1699,7 +1732,7 @@ export default class BaileysProvider extends BaseProvider {
                     await Message.bulkWrite(messageBulkOps, { ordered: false });
                 }
 
-                console.log(`Finished chunk processing of historical messages for WABA ${wabaId}`);
+                console.log(`Finished chunk processing of historical messages for WABA ${wabaId} (${skipped} failed)`);
             }
         } catch (error) {
             console.error(`Error in processHistorySync for WABA ${wabaId}:`, error);

@@ -45,7 +45,6 @@ function isAllowedPath(path) {
 
 const MUTATING_METHODS = ['POST', 'PUT', 'DELETE', 'PATCH'];
 
-
 export const denyMutationInDemo = async (req, res, next) => {
   if (!MUTATING_METHODS.includes(req.method)) {
     return next();

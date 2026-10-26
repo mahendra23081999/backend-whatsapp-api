@@ -3302,7 +3302,7 @@ export const connectWhatsApp = async (req, res) => {
         }
       });
     } else if (provider === PROVIDER_TYPES.BAILEY) {
-      const { instance_name, name: bodyName, workspace_id } = req.body;
+      const { instance_name, name: bodyName, workspace_id, sync_chat } = req.body;
       const finalInstanceName = instance_name || bodyName;
 
       if (!finalInstanceName) {
@@ -3328,6 +3328,7 @@ export const connectWhatsApp = async (req, res) => {
         instance_name: finalInstanceName,
         provider: PROVIDER_TYPES.BAILEY,
         connection_status: 'initial',
+        sync_chat: sync_chat === true || sync_chat === 'true',
         is_active: true
       });
 
@@ -4356,6 +4357,12 @@ export const getBaileysQRCode = async (req, res) => {
         message: 'Valid WABA ID is required',
         error: 'Valid WABA ID is required'
       });
+    }
+
+    // Persist the choice: the socket that shows the QR may already exist (created on instance creation),
+    // so the history handler reads this flag from the DB rather than from the socket's init params
+    if (req.query.sync_chat !== undefined) {
+      await WhatsappWaba.updateOne({ _id: wabaId, user_id: userId }, { sync_chat: syncChat });
     }
 
     let qrData;

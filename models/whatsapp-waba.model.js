@@ -55,6 +55,12 @@ const whatsappWabaSchema = new mongoose.Schema({
     type: String
   },
 
+  // Baileys only: import existing chat history when the device is linked
+  sync_chat: {
+    type: Boolean,
+    default: false
+  },
+
   is_active: {
     type: Boolean,
     default: true
