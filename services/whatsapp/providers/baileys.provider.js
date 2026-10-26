@@ -35,7 +35,13 @@ export default class BaileysProvider extends BaseProvider {
         super();
         this.sockets = new Map();
         this.initializing = new Map();
+        this.reconnecting = new Set();
         this.io = null;
+    }
+
+    hasLiveSocket(wabaId) {
+        const id = wabaId.toString();
+        return this.sockets.has(id) || this.initializing.has(id) || this.reconnecting.has(id);
     }
 
     setIO(io) {
@@ -139,13 +145,21 @@ export default class BaileysProvider extends BaseProvider {
                     this.sockets.delete(wabaId.toString());
 
                     if (shouldReconnect) {
-                        await delay(5000);
+                        // After a QR scan WhatsApp closes the stream with restartRequired (515);
+                        // the new socket must log in right away or the phone shows "Couldn't link device"
+                        const isRestartRequired = errorCode === DisconnectReason.restartRequired;
+                        this.reconnecting.add(wabaId.toString());
+                        try {
+                            if (!isRestartRequired) await delay(5000);
 
-                        const freshData = await WhatsappWaba.findById(wabaId).lean();
-                        await this.initializeConnection(userId, {
-                            ...(freshData || connectionData),
-                            sync_chat: connectionData.sync_chat
-                        });
+                            const freshData = await WhatsappWaba.findById(wabaId).lean();
+                            await this.initializeConnection(userId, {
+                                ...(freshData || connectionData),
+                                sync_chat: connectionData.sync_chat
+                            });
+                        } finally {
+                            this.reconnecting.delete(wabaId.toString());
+                        }
                     } else {
                         if (isQRTimeout) {
                             console.log(`QR timeout for WABA ${wabaId}. Breaking loop.`);
@@ -1288,6 +1302,15 @@ export default class BaileysProvider extends BaseProvider {
 
     async getQRCode(userId, connection = null) {
         if (!connection) throw new Error('Connection not found');
+        const wabaId = connection._id || connection.id;
+
+        // A stored QR is only scannable while the socket that generated it is alive.
+        // After a restart/redeploy the DB still holds the old QR, and scanning it fails with "Couldn't link device".
+        if (connection.connection_status === 'qrcode' && !this.hasLiveSocket(wabaId)) {
+            await WhatsappWaba.findByIdAndUpdate(wabaId, { connection_status: 'disconnected', qr_code: null });
+            return { success: true, qr_code: null, status: 'disconnected' };
+        }
+
         return {
             success: true,
             qr_code: connection.qr_code,

@@ -716,6 +716,10 @@ class UnifiedWhatsAppService {
             .catch(err => console.error(`Error auto-initializing Baileys for WABA ${conn._id}:`, err));
         } else {
           console.log(`Skipping ${conn._id} - no session files found. Status: ${conn.connection_status}`);
+          if (conn.connection_status === 'qrcode') {
+            // QR belonged to a socket from the previous process and can no longer be scanned
+            await WhatsappWaba.findByIdAndUpdate(conn._id, { connection_status: 'disconnected', qr_code: null });
+          }
         }
       }
     } catch (error) {
