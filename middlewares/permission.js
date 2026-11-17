@@ -1,5 +1,19 @@
 import { User, Permission, RolePermission, TeamPermission } from '../models/index.js';
 
+// Permission definitions (slug -> doc) rarely change; cache them to skip a query per request.
+const PERMISSION_CACHE_TTL_MS = 5 * 60 * 1000;
+const permissionCache = new Map();
+
+const findPermissionBySlug = async (slug) => {
+  const cached = permissionCache.get(slug);
+  if (cached && Date.now() - cached.at < PERMISSION_CACHE_TTL_MS) {
+    return cached.doc;
+  }
+  const doc = await Permission.findOne({ slug }).lean();
+  if (doc) permissionCache.set(slug, { doc, at: Date.now() });
+  return doc;
+};
+
 export const checkPermission = (permissionSlug) => {
   return async (req, res, next) => {
     try {
@@ -30,7 +44,7 @@ export const checkPermission = (permissionSlug) => {
         return next();
       }
 
-      const permissionDoc = await Permission.findOne({ slug: permissionSlug }).lean();
+      const permissionDoc = await findPermissionBySlug(permissionSlug);
 
       if (!permissionDoc) {
         return res.status(403).json({

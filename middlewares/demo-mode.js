@@ -1,28 +1,25 @@
 import { Setting } from '../models/index.js';
-
 const CACHE_MS = 60 * 1000;
 let cached = { value: null, at: 0 };
-
-
 export async function isDemoMode() {
+  
   console.log("isDemoMode=======>");
 
   const now = Date.now();
   if (cached.value !== null && now - cached.at < CACHE_MS) {
     return cached.value;
   }
-  
+
   try {
-    
+
     const setting = await Setting.findOne({})
     .select('is_demo_mode')
     .lean();
-
     const value = setting?.is_demo_mode === true || setting?.is_demo_mode === 1;
-
     console.log("setting" , value)
     cached = { value, at: now };
     return value;
+
   } catch (err) {
     console.error('demo-mode middleware: failed to read setting', err);
     return false;

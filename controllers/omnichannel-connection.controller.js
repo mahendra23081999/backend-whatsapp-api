@@ -155,13 +155,32 @@ export const connectChannel = async (req, res) => {
                 }
             }
         } else if (platform === 'instagram') {
-            const { code, redirect_uri } = req.body;
+            const { redirect_uri } = req.body;
+            // Instagram appends "#_" to the code in the redirect URL; it must be stripped before exchange
+            const code = typeof req.body.code === 'string' ? req.body.code.trim().replace(/#_$/, '') : req.body.code;
+            const igLogTag = `[Instagram Connect][ws=${workspace_id}][user=${userId}]`;
+            const mask = (v) => (v ? `${String(v).slice(0, 6)}...${String(v).slice(-4)} (len=${String(v).length})` : String(v));
+
+            console.log(`${igLogTag} Step 1: request received`, {
+                has_code: !!code,
+                code: mask(code),
+                raw_code_had_hash_suffix: typeof req.body.code === 'string' && /#_$/.test(req.body.code.trim()),
+                redirect_uri
+            });
+
             if (!code || !redirect_uri) {
+                console.warn(`${igLogTag} Missing code or redirect_uri`);
                 return res.status(400).json({ success: false, error: 'code and redirect_uri are required for instagram' });
             }
 
             const setting = await Setting.findOne();
+            console.log(`${igLogTag} Step 2: settings loaded`, {
+                ig_app_id: setting?.ig_app_id || null,
+                has_ig_app_secret: !!setting?.ig_app_secret,
+                ig_app_secret: mask(setting?.ig_app_secret)
+            });
             if (!setting?.ig_app_id || !setting?.ig_app_secret) {
+                console.warn(`${igLogTag} Instagram App ID or Secret missing in settings`);
                 return res.status(400).json({ success: false, error: 'Instagram App ID or Secret missing in settings' });
             }
 
@@ -175,14 +194,40 @@ export const connectChannel = async (req, res) => {
             let shortLivedToken;
             let igUserId;
             try {
+                console.log(`${igLogTag} Step 3: exchanging code at https://api.instagram.com/oauth/access_token`, {
+                    client_id: setting.ig_app_id,
+                    redirect_uri,
+                    code: mask(code)
+                });
                 const tokenRes = await axios.post('https://api.instagram.com/oauth/access_token', form.toString(), {
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
                 });
                 shortLivedToken = tokenRes.data.access_token;
                 igUserId = tokenRes.data.user_id;
+                console.log(`${igLogTag} Step 3 OK: short-lived token received`, {
+                    ig_user_id: igUserId,
+                    token: mask(shortLivedToken),
+                    permissions: tokenRes.data.permissions
+                });
             } catch (err) {
-                console.error("Instagram token exchange error:", err.response?.data || err.message);
-                return res.status(400).json({ success: false, error: 'Failed to exchange Instagram authorization code' });
+                const igError = err.response?.data;
+                console.error(`${igLogTag} Step 3 FAILED: token exchange error`, {
+                    http_status: err.response?.status,
+                    instagram_response: igError ? JSON.stringify(igError) : null,
+                    message: err.message,
+                    sent: { client_id: setting.ig_app_id, redirect_uri, code: mask(code) },
+                    hints: [
+                        'redirect_uri must EXACTLY match the one used in the authorize URL and the one in Meta App > Instagram > Business login settings (incl. trailing slash, http/https, www)',
+                        'code is single-use and expires in ~1 hour; a double request (e.g. React StrictMode useEffect) makes the 2nd call fail',
+                        'ig_app_id/ig_app_secret must be the Instagram App ID/Secret, not the Facebook App ID/Secret'
+                    ]
+                });
+                return res.status(400).json({
+                    success: false,
+                    error: 'Failed to exchange Instagram authorization code',
+                    details: igError?.error_message || igError?.error?.message || err.message,
+                    instagram_error: igError || null
+                });
             }
 
             let longLivedToken = shortLivedToken;
@@ -195,8 +240,16 @@ export const connectChannel = async (req, res) => {
                     }
                 });
                 longLivedToken = igLongLivedRes.data.access_token || shortLivedToken;
+                console.log(`${igLogTag} Step 4 OK: long-lived token received`, {
+                    token: mask(longLivedToken),
+                    expires_in: igLongLivedRes.data.expires_in
+                });
             } catch (err) {
-                console.warn("Failed to exchange for long lived Instagram token:", err.response?.data || err.message);
+                console.warn(`${igLogTag} Step 4 FAILED: long-lived token exchange (continuing with short-lived)`, {
+                    http_status: err.response?.status,
+                    instagram_response: err.response?.data ? JSON.stringify(err.response.data) : null,
+                    message: err.message
+                });
             }
 
             let igUser = { id: igUserId, name: `Instagram Account (ID: ${igUserId})`, username: igUserId };
@@ -212,8 +265,13 @@ export const connectChannel = async (req, res) => {
                         username: meResIg.data.username || igUserId
                     };
                 }
+                console.log(`${igLogTag} Step 5 OK: profile fetched`, igUser);
             } catch (err2) {
-                console.error("Instagram profile fetch error:", err2.response?.data || err2.message);
+                console.error(`${igLogTag} Step 5 FAILED: profile fetch error`, {
+                    http_status: err2.response?.status,
+                    instagram_response: err2.response?.data ? JSON.stringify(err2.response.data) : null,
+                    message: err2.message
+                });
             }
 
             const existingInstagram = await InstagramConnection.findOne({
@@ -250,10 +308,13 @@ export const connectChannel = async (req, res) => {
                 { upsert: true, new: true }
             );
 
+            console.log(`${igLogTag} Step 6 OK: connection saved`, { connection_id: connection?._id?.toString() });
+
             try {
                 await instagramProvider.subscribePageToWebhook(igUser.id, longLivedToken);
+                console.log(`${igLogTag} Step 7 OK: webhook subscribed`);
             } catch (err) {
-                console.error(`[Instagram Connection] Failed to subscribe webhook for ${igUser.username}:`, err.message);
+                console.error(`${igLogTag} Step 7 FAILED: webhook subscribe for ${igUser.username}:`, err.response?.data ? JSON.stringify(err.response.data) : err.message);
             }
         } else if (platform === 'twitter') {
             return res.status(400).json({ success: false, error: 'Twitter integration is currently disabled.' });

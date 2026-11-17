@@ -16,11 +16,12 @@ const DEFAULT_LIMIT = 10;
 const MAX_LIMIT = 100;
 
 const parsePaginationParams = (query) => {
+  
   const page = Math.max(1, parseInt(query.page) || DEFAULT_PAGE);
   const limit = Math.max(1, Math.min(MAX_LIMIT, parseInt(query.limit) || DEFAULT_LIMIT));
   const skip = (page - 1) * limit;
-
   return { page, limit, skip };
+
 };
 
 const SORT_ORDER = {

@@ -48,7 +48,9 @@ class AWSStorage {
   }
 
   constructor(config = {}) {
+
     const rawRegion = config.region || process.env.AWS_REGION;
+    
     this.config = {
       accessKeyId: config.accessKeyId || process.env.AWS_ACCESS_KEY_ID,
       secretAccessKey: config.secretAccessKey || process.env.AWS_SECRET_ACCESS_KEY,
@@ -153,6 +155,7 @@ class AWSStorage {
 }
 
 export const deleteFile = AWSStorage.deleteFile;
+
 export { AWSStorage };
 
 export default AWSStorage;

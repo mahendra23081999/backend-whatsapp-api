@@ -3,16 +3,19 @@ import mongoose from "mongoose";
 import { getWhatsAppTypeFromMime } from "../utils/uploadMediaToWhatsapp.js";
 
 const addBaseUrlToMediaUrls = (template) => {
+
   if (!template) return template;
 
   const result = { ...template };
 
   if (result.header && result.header.media_url && !result.header.media_url.startsWith('http')) {
-    result.header.media_url = `${process.env.APP_URL}/${result.header.media_url}`;
+     result.header.media_url = `${process.env.APP_URL}/${result.header.media_url}`;
   }
 
   if (result.carousel_cards && Array.isArray(result.carousel_cards)) {
+
     result.carousel_cards = result.carousel_cards.map(card => {
+      
       if (card.components && Array.isArray(card.components)) {
         card = {
           ...card,
@@ -23,17 +26,18 @@ const addBaseUrlToMediaUrls = (template) => {
                 media_url: `${process.env.APP_URL}/${component.media_url}`
               };
             }
-            return component;
+            return component;  
+            
           })
         };
       }
       return card;
     });
+
   }
-
   return result;
-};
 
+};
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 10;
