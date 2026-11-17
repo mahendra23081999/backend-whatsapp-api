@@ -9,6 +9,15 @@ import mongoose from 'mongoose';
 
 const FB_API_VERSION = 'v22.0';
 
+// code -> promise that resolves when the first request using that code has finished
+const usedInstagramCodes = new Map();
+
+const getInstagramRedirectUri = () => {
+    if (process.env.INSTAGRAM_REDIRECT_URI) return process.env.INSTAGRAM_REDIRECT_URI.trim();
+    const base = process.env.FRONTEND_URL;
+    return base ? `${base.trim().replace(/\/+$/, '')}/instagram-callback` : null;
+};
+
 export const connectChannel = async (req, res) => {
     try {
         const { platform, workspace_id } = req.body;
@@ -155,23 +164,47 @@ export const connectChannel = async (req, res) => {
                 }
             }
         } else if (platform === 'instagram') {
-            const { redirect_uri } = req.body;
+            const clientRedirectUri = req.body.redirect_uri;
             // Instagram appends "#_" to the code in the redirect URL; it must be stripped before exchange
             const code = typeof req.body.code === 'string' ? req.body.code.trim().replace(/#_$/, '') : req.body.code;
             const igLogTag = `[Instagram Connect][ws=${workspace_id}][user=${userId}]`;
             const mask = (v) => (v ? `${String(v).slice(0, 6)}...${String(v).slice(-4)} (len=${String(v).length})` : String(v));
 
+            // The redirect_uri sent to the token endpoint must be byte-identical to the one registered in
+            // Meta App > Instagram > Business login settings. Use the server-configured value instead of
+            // trusting whatever the browser sends (origin/www/trailing-slash differences break the exchange).
+            const redirect_uri = getInstagramRedirectUri() || clientRedirectUri;
+
             console.log(`${igLogTag} Step 1: request received`, {
                 has_code: !!code,
                 code: mask(code),
                 raw_code_had_hash_suffix: typeof req.body.code === 'string' && /#_$/.test(req.body.code.trim()),
-                redirect_uri
+                client_redirect_uri: clientRedirectUri,
+                redirect_uri_used: redirect_uri,
+                redirect_uri_mismatch: !!clientRedirectUri && clientRedirectUri !== redirect_uri
             });
 
             if (!code || !redirect_uri) {
                 console.warn(`${igLogTag} Missing code or redirect_uri`);
                 return res.status(400).json({ success: false, error: 'code and redirect_uri are required for instagram' });
             }
+
+            // Authorization codes are single-use. If the frontend fires the request twice (e.g. React StrictMode),
+            // the second call would fail even though the first succeeded — return the result of the first instead.
+            if (usedInstagramCodes.has(code)) {
+                console.warn(`${igLogTag} Duplicate request with an already-used code; waiting for first request result`);
+                await usedInstagramCodes.get(code).catch(() => {});
+                const existing = await InstagramConnection.findOne({ workspace_id });
+                if (existing) {
+                    return res.status(200).json({ success: true, message: 'Instagram connected successfully!', data: existing });
+                }
+                return res.status(400).json({ success: false, error: 'This Instagram authorization code was already used. Please try connecting again.' });
+            }
+            let markCodeDone;
+            const codePromise = new Promise((resolve) => { markCodeDone = resolve; });
+            usedInstagramCodes.set(code, codePromise);
+            setTimeout(() => usedInstagramCodes.delete(code), 10 * 60 * 1000).unref?.();
+            res.on('finish', () => markCodeDone());
 
             const setting = await Setting.findOne();
             console.log(`${igLogTag} Step 2: settings loaded`, {
