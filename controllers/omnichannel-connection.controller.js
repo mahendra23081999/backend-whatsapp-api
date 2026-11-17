@@ -15,8 +15,19 @@ const usedInstagramCodes = new Map();
 // Must be byte-identical to Meta App > Instagram > Business login settings > OAuth redirect URIs
 const DEFAULT_INSTAGRAM_REDIRECT_URI = 'https://wabot.multiplestack.com/instagram-callback';
 
-const getInstagramRedirectUri = () =>
-    (process.env.INSTAGRAM_REDIRECT_URI || DEFAULT_INSTAGRAM_REDIRECT_URI).trim();
+const getInstagramRedirectUri = () => {
+    let uri = (process.env.INSTAGRAM_REDIRECT_URI || DEFAULT_INSTAGRAM_REDIRECT_URI).trim().replace(/^['"]|['"]$/g, '');
+    // If only a domain was configured (e.g. "https://wabot.multiplestack.com"), add the callback path
+    try {
+        const parsed = new URL(uri);
+        if (parsed.pathname === '/' || parsed.pathname === '') {
+            uri = `${parsed.origin}/instagram-callback`;
+        }
+    } catch {
+        uri = DEFAULT_INSTAGRAM_REDIRECT_URI;
+    }
+    return uri;
+};
 
 export const connectChannel = async (req, res) => {
     try {
