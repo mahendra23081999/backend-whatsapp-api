@@ -12,11 +12,11 @@ const FB_API_VERSION = 'v22.0';
 // code -> promise that resolves when the first request using that code has finished
 const usedInstagramCodes = new Map();
 
-const getInstagramRedirectUri = () => {
-    if (process.env.INSTAGRAM_REDIRECT_URI) return process.env.INSTAGRAM_REDIRECT_URI.trim();
-    const base = process.env.FRONTEND_URL;
-    return base ? `${base.trim().replace(/\/+$/, '')}/instagram-callback` : null;
-};
+// Must be byte-identical to Meta App > Instagram > Business login settings > OAuth redirect URIs
+const DEFAULT_INSTAGRAM_REDIRECT_URI = 'https://wabot.multiplestack.com/instagram-callback';
+
+const getInstagramRedirectUri = () =>
+    (process.env.INSTAGRAM_REDIRECT_URI || DEFAULT_INSTAGRAM_REDIRECT_URI).trim();
 
 export const connectChannel = async (req, res) => {
     try {
@@ -175,14 +175,14 @@ export const connectChannel = async (req, res) => {
             // trusting whatever the browser sends (origin/www/trailing-slash differences break the exchange).
             const redirect_uri = getInstagramRedirectUri() || clientRedirectUri;
 
-            console.log(`${igLogTag} Step 1: request received`, {
+            console.log(`${igLogTag} Step 1: request received ` + JSON.stringify({
                 has_code: !!code,
                 code: mask(code),
                 raw_code_had_hash_suffix: typeof req.body.code === 'string' && /#_$/.test(req.body.code.trim()),
                 client_redirect_uri: clientRedirectUri,
                 redirect_uri_used: redirect_uri,
                 redirect_uri_mismatch: !!clientRedirectUri && clientRedirectUri !== redirect_uri
-            });
+            }));
 
             if (!code || !redirect_uri) {
                 console.warn(`${igLogTag} Missing code or redirect_uri`);
@@ -207,11 +207,11 @@ export const connectChannel = async (req, res) => {
             res.on('finish', () => markCodeDone());
 
             const setting = await Setting.findOne();
-            console.log(`${igLogTag} Step 2: settings loaded`, {
+            console.log(`${igLogTag} Step 2: settings loaded ` + JSON.stringify({
                 ig_app_id: setting?.ig_app_id || null,
                 has_ig_app_secret: !!setting?.ig_app_secret,
                 ig_app_secret: mask(setting?.ig_app_secret)
-            });
+            }));
             if (!setting?.ig_app_id || !setting?.ig_app_secret) {
                 console.warn(`${igLogTag} Instagram App ID or Secret missing in settings`);
                 return res.status(400).json({ success: false, error: 'Instagram App ID or Secret missing in settings' });
@@ -244,17 +244,13 @@ export const connectChannel = async (req, res) => {
                 });
             } catch (err) {
                 const igError = err.response?.data;
-                console.error(`${igLogTag} Step 3 FAILED: token exchange error`, {
+                // Single-line JSON so Cloud Run logging keeps it in one entry
+                console.error(`${igLogTag} Step 3 FAILED: token exchange error ` + JSON.stringify({
+                    instagram_response: igError || null,
                     http_status: err.response?.status,
-                    instagram_response: igError ? JSON.stringify(igError) : null,
                     message: err.message,
-                    sent: { client_id: setting.ig_app_id, redirect_uri, code: mask(code) },
-                    hints: [
-                        'redirect_uri must EXACTLY match the one used in the authorize URL and the one in Meta App > Instagram > Business login settings (incl. trailing slash, http/https, www)',
-                        'code is single-use and expires in ~1 hour; a double request (e.g. React StrictMode useEffect) makes the 2nd call fail',
-                        'ig_app_id/ig_app_secret must be the Instagram App ID/Secret, not the Facebook App ID/Secret'
-                    ]
-                });
+                    sent: { client_id: setting.ig_app_id, redirect_uri, code: mask(code) }
+                }));
                 return res.status(400).json({
                     success: false,
                     error: 'Failed to exchange Instagram authorization code',
