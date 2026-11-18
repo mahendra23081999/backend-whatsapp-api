@@ -68,8 +68,9 @@ const getAllSettings = async (req, res) => {
   out.whatsapp_otp_variable_mapping = settings.whatsapp_otp_variable_mapping || {};
 
   out.webhook_verification_token = process.env.WHATSAPP_VERIFY_TOKEN || settings.webhook_verification_token || '';
-  out.facebook_lead_webhook_verify_token = process.env.FACEBOOK_LEAD_WEBHOOK_VERIFY_TOKEN || settings.facebook_lead_webhook_verify_token || '';
-  out.instagram_webhook_verify_token = process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN || settings.instagram_webhook_verify_token || '';
+  // DB value wins so admin-saved tokens are not shadowed by a stale env var (e.g. Cloud Run config)
+  out.facebook_lead_webhook_verify_token = settings.facebook_lead_webhook_verify_token || process.env.FACEBOOK_LEAD_WEBHOOK_VERIFY_TOKEN || '';
+  out.instagram_webhook_verify_token = settings.instagram_webhook_verify_token || process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN || '';
   out.smtp_host = process.env.SMTP_HOST || '';
   out.smtp_port = process.env.SMTP_PORT || '';
   out.smtp_user = process.env.SMTP_USER || '';
@@ -222,12 +223,14 @@ const updateSetting = async (req, res) => {
       envVars.WHATSAPP_VERIFY_TOKEN = req.body.webhook_verification_token;
     }
 
-    if (req.body.facebook_lead_webhook_verify_token !== undefined && !req.body.facebook_lead_webhook_verify_token.endsWith('****')) {
-      envVars.FACEBOOK_LEAD_WEBHOOK_VERIFY_TOKEN = req.body.facebook_lead_webhook_verify_token;
+    if (typeof req.body.facebook_lead_webhook_verify_token === 'string' && !req.body.facebook_lead_webhook_verify_token.endsWith('****')) {
+      processedBody.facebook_lead_webhook_verify_token = req.body.facebook_lead_webhook_verify_token.trim();
+      envVars.FACEBOOK_LEAD_WEBHOOK_VERIFY_TOKEN = processedBody.facebook_lead_webhook_verify_token;
     }
 
-    if (req.body.instagram_webhook_verify_token !== undefined && !req.body.instagram_webhook_verify_token.endsWith('****')) {
-      envVars.INSTAGRAM_WEBHOOK_VERIFY_TOKEN = req.body.instagram_webhook_verify_token;
+    if (typeof req.body.instagram_webhook_verify_token === 'string' && !req.body.instagram_webhook_verify_token.endsWith('****')) {
+      processedBody.instagram_webhook_verify_token = req.body.instagram_webhook_verify_token.trim();
+      envVars.INSTAGRAM_WEBHOOK_VERIFY_TOKEN = processedBody.instagram_webhook_verify_token;
     }
 
     if (req.body.smtp_host !== undefined) {
