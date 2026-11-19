@@ -2199,7 +2199,9 @@ export const getRecentChats = async (req, res) => {
               { "pages.page_id": whatsappPhoneNumberId }
             ]
           });
-          if (fb) {
+          // Page may exist only in facebook_pages (not embedded in FacebookConnection.pages)
+          const fbPageDoc = !fb ? await FacebookPage.findOne({ page_id: whatsappPhoneNumberId, is_active: true }).select('page_id').lean() : null;
+          if (fb || fbPageDoc) {
             isFacebook = true;
             activeConnection = fb;
           } else {
@@ -2297,6 +2299,12 @@ export const getRecentChats = async (req, res) => {
           matchQuery.$or = [
             { sender_id: targetId },
             { recipient_id: targetId }
+          ];
+        } else {
+          // Page found only in facebook_pages — filter directly by the page id
+          matchQuery.$or = [
+            { sender_id: whatsappPhoneNumberId },
+            { recipient_id: whatsappPhoneNumberId }
           ];
         }
       }

@@ -185,19 +185,37 @@ class FacebookProvider {
     }
 
     async subscribePageToWebhook(pageId, pageAccessToken) {
-        try {
-            const url = `https://graph.facebook.com/${FB_API_VERSION}/${pageId}/subscribed_apps`;
-            const response = await axios.post(url, null, {
-                params: {
-                    subscribed_fields: 'leadgen,messages,messaging_postbacks,message_reactions,feed',
-                    access_token: pageAccessToken
-                }
-            });
-            return response.data;
-        } catch (error) {
-             console.error('[FacebookProvider] Error subscribing page:', JSON.stringify(error?.response?.data || {}, null, 2) || error.message);
-             throw error;
+        const url = `https://graph.facebook.com/${FB_API_VERSION}/${pageId}/subscribed_apps`;
+        // Meta rejects the whole request if any single field lacks permission (e.g. leadgen needs
+        // leads_retrieval, feed needs pages_manage_metadata). Try the full set first, then fall back
+        // to progressively smaller sets so incoming messages still get subscribed.
+        const fieldSets = [
+            'leadgen,messages,messaging_postbacks,message_reactions,feed',
+            'messages,messaging_postbacks,message_reactions,feed',
+            'messages,messaging_postbacks,message_reactions',
+            'messages'
+        ];
+        let lastError;
+        for (const fields of fieldSets) {
+            try {
+                const response = await axios.post(url, null, {
+                    params: { subscribed_fields: fields, access_token: pageAccessToken }
+                });
+                console.log(`[FacebookProvider] Page ${pageId} subscribed to webhook fields: ${fields}`, JSON.stringify(response.data));
+                return response.data;
+            } catch (error) {
+                lastError = error;
+                console.error(`[FacebookProvider] Subscribe page ${pageId} with fields "${fields}" FAILED:`, JSON.stringify(error?.response?.data || { message: error.message }));
+            }
         }
+        console.error(`[FacebookProvider] Page ${pageId} could NOT be subscribed to any webhook fields — incoming Facebook messages will not arrive. Check the page token has pages_messaging + pages_manage_metadata.`);
+        throw lastError;
+    }
+
+    async getPageSubscriptions(pageId, pageAccessToken) {
+        const url = `https://graph.facebook.com/${FB_API_VERSION}/${pageId}/subscribed_apps`;
+        const response = await axios.get(url, { params: { access_token: pageAccessToken } });
+        return response.data?.data || [];
     }
     async unsubscribePageToWebhook(pageId, pageAccessToken) {
         try {

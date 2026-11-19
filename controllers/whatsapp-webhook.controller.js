@@ -77,7 +77,12 @@ export const handleFacebookInstagramIncoming = async (req, res, io = null) => {
     res.status(200).send('EVENT_RECEIVED');
 
     if (body.object !== 'page' && body.object !== 'instagram') {
+      console.warn(`[Facebook/Instagram Webhook] Ignored payload with object="${body.object}" (expected "page" or "instagram")`);
       return;
+    }
+
+    if (!Array.isArray(body.entry) || body.entry.length === 0) {
+      console.warn('[Facebook/Instagram Webhook] Payload has no entries — nothing to process');
     }
 
     for (const entry of (body.entry || [])) {
@@ -153,7 +158,27 @@ export const handleFacebookInstagramIncoming = async (req, res, io = null) => {
         userId = pageWithIg.user_id;
         connectionId = pageWithIg.connection_id;
         pageAccessToken = pageWithIg.page_access_token;
+        console.log(`[Facebook/Instagram Webhook] Entry ${pageOrAccountId} matched FacebookPage "${pageWithIg.page_name}" (platform=${platform}, workspace=${workspaceId}, has_token=${!!pageAccessToken})`);
       } else {
+        // Page not in facebook_pages collection — fall back to the page list embedded in FacebookConnection
+        const fbConn = body.object === 'page'
+          ? await FacebookConnection.findOne({ 'pages.page_id': pageOrAccountId, is_active: true })
+          : null;
+        const fbConnPage = fbConn?.pages?.find(p => p.page_id === pageOrAccountId);
+        if (fbConn && fbConnPage) {
+          platform = 'facebook';
+          workspaceId = fbConn.workspace_id;
+          userId = fbConn.user_id;
+          connectionId = fbConn._id;
+          pageAccessToken = fbConnPage.page_access_token;
+          console.log(`[Facebook/Instagram Webhook] Entry ${pageOrAccountId} matched FacebookConnection ${fbConn._id} page "${fbConnPage.page_name}" (not in facebook_pages; run Sync on the Facebook Connect page to repair)`);
+          if (!workspaceId) {
+            console.warn(`[Facebook/Instagram Webhook] FacebookConnection ${fbConn._id} has no workspace_id — message cannot be routed to a workspace`);
+          }
+        }
+      }
+
+      if (!workspaceId && !pageWithIg) {
         connection = await InstagramConnection.findOne({ 'pages.page_id': pageOrAccountId, is_active: true });
         if (!connection) connection = await InstagramConnection.findOne({ ig_user_id: pageOrAccountId, is_active: true });
         if (!connection) connection = await InstagramConnection.findOne({ global_instagram_account_id: pageOrAccountId, is_active: true });
@@ -197,8 +222,21 @@ export const handleFacebookInstagramIncoming = async (req, res, io = null) => {
       }
 
       if (!workspaceId) {
-        console.warn(`[Facebook/Instagram Webhook] No active Instagram connection or FacebookPage found in DB for ID: ${pageOrAccountId}`);
+        const inactivePage = await FacebookPage.findOne({ page_id: pageOrAccountId }).select('is_active workspace_id page_name').lean();
+        console.warn(`[Facebook/Instagram Webhook] DROPPED entry ${pageOrAccountId} (object=${body.object}): no active FacebookPage / FacebookConnection / InstagramConnection with a workspace found. ` + JSON.stringify({
+          inactive_or_unscoped_page: inactivePage || null,
+          events_dropped: messagingEvents.length,
+          hint: 'Reconnect or Sync the Facebook page in the workspace that should receive these messages.'
+        }));
         continue;
+      }
+
+      if (!pageAccessToken) {
+        console.warn(`[Facebook/Instagram Webhook] No page access token for ${pageOrAccountId} — messages will be saved but profile lookup and auto-replies will fail`);
+      }
+
+      if (messagingEvents.length === 0 && commentEvents.length === 0) {
+        console.log(`[Facebook/Instagram Webhook] Entry ${pageOrAccountId} has no messaging/comment events (keys: ${Object.keys(entry).join(',')})`);
       }
 
       for (const commentEvent of commentEvents) {
@@ -213,6 +251,7 @@ export const handleFacebookInstagramIncoming = async (req, res, io = null) => {
       }
 
       for (const event of messagingEvents) {
+       try {
         const mid = event.message?.mid || event.postback?.mid || event.reaction?.mid || event.read?.mid;
         const isReaction = !!event.reaction;
         const isPostback = !!event.postback;
@@ -375,6 +414,7 @@ export const handleFacebookInstagramIncoming = async (req, res, io = null) => {
         }
 
         if (!event.message && !isReaction && !isPostback) {
+          console.log(`[Facebook/Instagram Webhook] Skipping non-message event (keys: ${Object.keys(event).join(',')})`);
           continue;
         }
 
@@ -465,6 +505,7 @@ export const handleFacebookInstagramIncoming = async (req, res, io = null) => {
           }
 
           contactDoc = await Contact.create(contactFields);
+          console.log(`[Facebook/Instagram Webhook] Created ${eventPlatform} contact ${contactDoc._id} "${senderName}" for sender ${senderId}`);
         } else if (contactDoc.name === 'Facebook User' || contactDoc.name === 'Instagram User') {
           let updatedName = event.sender?.name || null;
           if (!updatedName && pageAccessToken) {
@@ -588,6 +629,11 @@ export const handleFacebookInstagramIncoming = async (req, res, io = null) => {
             read_status: 'unread',
             wa_timestamp: new Date(event.timestamp || Date.now())
           });
+          console.log(`[Facebook/Instagram Webhook] Saved inbound ${eventPlatform} ${messageType} message ${newMessage._id} (mid=${message.mid}, from=${senderId}, to=${recipientId}, workspace=${workspaceId})`);
+        }
+
+        if (!activeIo) {
+          console.warn('[Facebook/Instagram Webhook] Socket.io instance not available — inbox will not update live (message is saved)');
         }
 
         if (activeIo) {
@@ -652,6 +698,7 @@ export const handleFacebookInstagramIncoming = async (req, res, io = null) => {
             whatsapp_phone_number_id: wabaIdForSocket
           };
           activeIo.emit('whatsapp:message', formattedMessage);
+          console.log(`[Facebook/Instagram Webhook] Emitted socket message ${formattedMessage.id} for channel ${wabaIdForSocket}`);
         }
 
         if (content && typeof content === 'string') {
@@ -800,6 +847,17 @@ export const handleFacebookInstagramIncoming = async (req, res, io = null) => {
             console.error(`[Facebook/Instagram Webhook] Automation trigger error:`, automationError);
           }
         }
+       } catch (eventErr) {
+        // Isolate failures so one bad event does not drop the rest of the batch
+        console.error(`[Facebook/Instagram Webhook] FAILED to process event for entry ${pageOrAccountId}: ${eventErr.message}`, JSON.stringify({
+          sender: event?.sender?.id,
+          recipient: event?.recipient?.id,
+          mid: event?.message?.mid || event?.postback?.mid || event?.reaction?.mid,
+          validation_errors: eventErr?.errors ? Object.fromEntries(Object.entries(eventErr.errors).map(([k, v]) => [k, v.message])) : undefined,
+          graph_error: eventErr?.response?.data?.error,
+          stack: eventErr.stack?.split('\n').slice(0, 4).join(' | ')
+        }));
+       }
       }
     }
   } catch (error) {
