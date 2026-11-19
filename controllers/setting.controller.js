@@ -6,6 +6,7 @@ import { Setting, Currency, WhatsappWaba, Role, User, WhatsappPhoneNumber, Templ
 import { updateEnvFile } from '../utils/env-file.js';
 import mongoose from 'mongoose';
 import { PayPalService } from '../utils/payment-gateway.service.js';
+import { normalizeUploadPath, toPublicUrl } from '../utils/public-url.js';
 
 const STRIPE_WEBHOOK_EVENTS = [
   'customer.subscription.created',
@@ -48,8 +49,8 @@ const getAllSettings = async (req, res) => {
   const baseUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
 
   for (const field of logoFields) {
-    if (out[field] && out[field].startsWith('/uploads/') && !isValidUrl(out[field])) {
-      out[field] = `${baseUrl}${out[field]}`;
+    if (out[field]) {
+      out[field] = toPublicUrl(out[field], baseUrl);
     }
   }
 
@@ -206,7 +207,7 @@ const updateSetting = async (req, res) => {
       if (uploadedFile) {
         const file = Array.isArray(uploadedFile) ? uploadedFile[0] : uploadedFile;
         if (file) {
-          processedBody[field] = file.path;
+          processedBody[field] = normalizeUploadPath(file.path);
         }
       }
       else if (req.body[field] && isValidUrl(req.body[field])) {

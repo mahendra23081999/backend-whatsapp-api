@@ -205,6 +205,7 @@ import planSnippetRoutes from "./routes/plan-snippet.routes.js";
 
 import { redirectShortLink } from "./controllers/short-link.controller.js";
 import { Setting } from "./models/index.js";
+import { toPublicUrl } from "./utils/public-url.js";
 
 
 
@@ -218,13 +219,14 @@ app.get("/api/is-demo-mode", async (req, res) => {
     const setting = await Setting.findOne({}).select("is_demo_mode demo_user_email demo_user_password demo_agent_email logo_light_url logo_dark_url favicon_url demo_agent_password -_id").lean();
 
     const is_demo_mode = setting?.is_demo_mode ?? false;
+    const baseUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
 
     return res.status(200).json({
       success: true,
       is_demo_mode,
-      logo_light_url: setting?.logo_light_url,
-      logo_dark_url: setting?.logo_dark_url,
-      favicon_url: setting?.favicon_url,
+      logo_light_url: toPublicUrl(setting?.logo_light_url, baseUrl),
+      logo_dark_url: toPublicUrl(setting?.logo_dark_url, baseUrl),
+      favicon_url: toPublicUrl(setting?.favicon_url, baseUrl),
       ...(is_demo_mode
         ? {
           demo_user_email: setting?.demo_user_email,

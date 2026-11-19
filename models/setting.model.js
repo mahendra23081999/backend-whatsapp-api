@@ -37,23 +37,23 @@ const settingSchema = new mongoose.Schema({
   },
   favicon_url: {
     type: String,
-    default: '/uploads\attachments\favicon.png'
+    default: '/uploads/attachments/favicon.png'
   },
   logo_light_url: {
     type: String,
-    default: '/uploads\attachments\logo_light.png'
+    default: '/uploads/attachments/logo_light.png'
   },
   logo_dark_url: {
     type: String,
-    default: '/uploads\attachments\logo_dark.png'
+    default: '/uploads/attachments/logo_dark.png'
   },
   sidebar_light_logo_url: {
     type: String,
-    default: '/uploads\attachments\sidebar_light_logo.png'
+    default: '/uploads/attachments/sidebar_light_logo.png'
   },
   sidebar_dark_logo_url: {
     type: String,
-    default: '/uploads\attachments\sidebar_dark_logo.png'
+    default: '/uploads/attachments/sidebar_dark_logo.png'
   },
   maintenance_mode: {
     type: Boolean,
