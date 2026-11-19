@@ -156,8 +156,10 @@ export const connectChannel = async (req, res) => {
                 workspace_id,
                 connection_id: connection._id,
                 page_id: p.id,
-                name: p.name,
-                access_token: p.access_token,
+                page_name: p.name,
+                page_access_token: p.access_token,
+                category: p.category,
+                picture_url: p.picture?.data?.url,
                 business_id: p.business?.id || null,
                 is_whatsapp_connected: !!p.is_whatsapp_connected,
                 is_instagram_connected: !!p.instagram_business_account?.id,
@@ -428,6 +430,49 @@ export const twitterCallback = async (req, res) => {
     res.send(html);
 };
 
+// Build the Facebook entries for the inbox channel list.
+// Pages may live in the embedded `pages` array and/or the `facebook_pages` collection
+// (the Facebook Connect page writes both, older connections may only have one of them).
+// An account with no pages at all is still listed so the inbox matches the "Connected" status shown in settings.
+const buildFacebookChannelEntries = async (conns) => {
+    const entries = [];
+    if (!conns.length) return entries;
+
+    const pageDocs = await FacebookPage.find({
+        connection_id: { $in: conns.map(c => c._id) },
+        is_active: true
+    }).select('connection_id page_id page_name').lean();
+
+    for (const conn of conns) {
+        const connectionId = conn._id.toString();
+        const seen = new Set();
+        const add = (pageId, pageName) => {
+            if (!pageId || seen.has(String(pageId))) return;
+            seen.add(String(pageId));
+            entries.push({
+                id: String(pageId),
+                name: pageName || 'Facebook Page',
+                platform: 'facebook',
+                connection_id: connectionId
+            });
+        };
+
+        (conn.pages || []).filter(p => p.is_active !== false).forEach(p => add(p.page_id, p.page_name));
+        pageDocs.filter(p => p.connection_id?.toString() === connectionId).forEach(p => add(p.page_id, p.page_name));
+
+        if (seen.size === 0) {
+            entries.push({
+                id: conn.fb_user_id || connectionId,
+                name: conn.name ? `${conn.name} (no pages)` : 'Facebook (no pages)',
+                platform: 'facebook',
+                connection_id: connectionId,
+                no_pages: true
+            });
+        }
+    }
+    return entries;
+};
+
 export const getConnectedChannels = async (req, res) => {
     try {
         const { workspace_id, platform } = req.query;
@@ -457,15 +502,8 @@ export const getConnectedChannels = async (req, res) => {
                 const conns = await FacebookConnection.find(query).lean();
                 conns.forEach(conn => {
                     data.push({ ...conn, platform: 'facebook', facebook: conn });
-                    (conn.pages || []).forEach(p => {
-                        connections.push({
-                            id: p.page_id,
-                            name: p.page_name || 'Facebook Page',
-                            platform: 'facebook',
-                            connection_id: conn._id.toString()
-                        });
-                    });
                 });
+                connections.push(...await buildFacebookChannelEntries(conns));
             } else if (platform === 'instagram') {
                 const conns = await InstagramConnection.find(query).lean();
                 conns.forEach(conn => {
@@ -504,15 +542,8 @@ export const getConnectedChannels = async (req, res) => {
 
             fbConns.forEach(conn => {
                 data.push({ ...conn, platform: 'facebook', facebook: conn });
-                (conn.pages || []).forEach(p => {
-                    connections.push({
-                        id: p.page_id,
-                        name: p.page_name || 'Facebook Page',
-                        platform: 'facebook',
-                        connection_id: conn._id.toString()
-                    });
-                });
             });
+            connections.push(...await buildFacebookChannelEntries(fbConns));
 
             igConns.forEach(conn => {
                 data.push({ ...conn, platform: 'instagram', instagram: conn });
