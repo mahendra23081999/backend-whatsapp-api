@@ -2,6 +2,36 @@ import axios from 'axios';
 
 const FB_API_VERSION = 'v22.0';
 
+const maskToken = (t) => (t ? `${String(t).slice(0, 8)}...${String(t).slice(-4)} (len=${String(t).length})` : String(t));
+
+// Single-line logging (Cloud Run splits multi-line logs) + rethrow with Instagram's real error message
+const igPost = async (action, url, payload, pageAccessToken) => {
+    const safeUrl = url.replace(/access_token=[^&]+/, 'access_token=' + maskToken(pageAccessToken));
+    const tokenType = String(pageAccessToken || '').startsWith('IGAA') ? 'instagram_login(IGAA)' : 'facebook_page_token(EAA)';
+    console.log(`[InstagramProvider][${action}] request ` + JSON.stringify({ url: safeUrl, token_type: tokenType, payload }));
+    try {
+        const response = await axios.post(url, payload);
+        console.log(`[InstagramProvider][${action}] OK ` + JSON.stringify(response.data));
+        return response.data;
+    } catch (error) {
+        const igErr = error?.response?.data?.error;
+        console.error(`[InstagramProvider][${action}] FAILED ` + JSON.stringify({
+            http_status: error?.response?.status,
+            instagram_error: error?.response?.data || null,
+            message: error.message,
+            url: safeUrl,
+            token_type: tokenType,
+            recipient: payload?.recipient,
+            payload
+        }));
+        if (igErr?.message) {
+            error.message = `Instagram API error (code ${igErr.code}${igErr.error_subcode ? ', subcode ' + igErr.error_subcode : ''}): ${igErr.message}`;
+            error.instagram_error = igErr;
+        }
+        throw error;
+    }
+};
+
 class InstagramProvider {
 
     async sendTextMessage(pageAccessToken, recipientId, text, options = {}) {
@@ -20,10 +50,8 @@ class InstagramProvider {
             if (options.messaging_type) payload.messaging_type = options.messaging_type;
             if (options.tag) payload.tag = options.tag;
 
-            const response = await axios.post(url, payload);
-            return response.data;
+            return await igPost('send_text', url, payload, pageAccessToken);
         } catch (error) {
-            console.error('[InstagramProvider] Error sending text message:', JSON.stringify(error?.response?.data || {}, null, 2) || error.message);
             throw error;
         }
     }
@@ -56,10 +84,8 @@ class InstagramProvider {
             if (options.messaging_type) payload.messaging_type = options.messaging_type;
             if (options.tag) payload.tag = options.tag;
 
-            const response = await axios.post(url, payload);
-            return response.data;
+            return await igPost('send_media', url, payload, pageAccessToken);
         } catch (error) {
-            console.error(`[InstagramProvider] Error sending ${messageType}:`, JSON.stringify(error?.response?.data || {}, null, 2) || error.message);
             throw error;
         }
     }
@@ -128,10 +154,8 @@ class InstagramProvider {
             if (options.messaging_type) payload.messaging_type = options.messaging_type;
             if (options.tag) payload.tag = options.tag;
 
-            const response = await axios.post(url, payload);
-            return response.data;
+            return await igPost('send_interactive', url, payload, pageAccessToken);
         } catch (error) {
-            console.error('[InstagramProvider] Error sending interactive message:', JSON.stringify(error?.response?.data || {}, null, 2) || error.message);
             throw error;
         }
     }
@@ -159,10 +183,8 @@ class InstagramProvider {
             if (options.messaging_type) payload.messaging_type = options.messaging_type;
             if (options.tag) payload.tag = options.tag;
 
-            const response = await axios.post(url, payload);
-            return response.data;
+            return await igPost('send_carousel', url, payload, pageAccessToken);
         } catch (error) {
-            console.error('[InstagramProvider] Error sending carousel message:', JSON.stringify(error?.response?.data || {}, null, 2) || error.message);
             throw error;
         }
     }
@@ -182,10 +204,8 @@ class InstagramProvider {
                 payload.payload.reaction = emoji;
             }
 
-            const response = await axios.post(url, payload);
-            return response.data;
+            return await igPost('send_reaction', url, payload, pageAccessToken);
         } catch (error) {
-            console.error('[InstagramProvider] Error sending reaction:', JSON.stringify(error?.response?.data || {}, null, 2) || error.message);
             throw error;
         }
     }
@@ -203,7 +223,7 @@ class InstagramProvider {
             });
             return response.data;
         } catch (error) {
-            console.error('[InstagramProvider] Error subscribing instagram webhook:', JSON.stringify(error?.response?.data || {}, null, 2) || error.message);
+            console.error('[InstagramProvider] Error subscribing instagram webhook:', JSON.stringify(error?.response?.data || {}) + ' ' + error.message);
             throw error;
         }
     }

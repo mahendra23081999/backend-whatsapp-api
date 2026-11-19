@@ -177,6 +177,22 @@ class OmnichannelService {
                 if (!pageAccessToken) {
                     pageAccessToken = connection.access_token || (connection.pages && connection.pages[0]?.page_access_token);
                 }
+                console.log('[Instagram Send] context ' + JSON.stringify({
+                    workspace_id,
+                    connection_id: connection._id?.toString(),
+                    connection_ig_user_id: connection.ig_user_id,
+                    connection_username: connection.username,
+                    requested_page_id: page_id || null,
+                    matched_page: !!(page_id && connection.pages?.some(p => p.instagram_account_id === page_id || p.page_id === page_id)),
+                    connection_page_ids: (connection.pages || []).map(p => p.page_id),
+                    recipient_id,
+                    message_type,
+                    has_text: !!text,
+                    file_url: resolvedFileUrl || null,
+                    tag_options: tagOptions || null,
+                    has_token: !!pageAccessToken,
+                    token_prefix: pageAccessToken ? String(pageAccessToken).slice(0, 4) : null
+                }));
                 if (!pageAccessToken) throw new Error("Instagram page access token not found");
 
                 if (message_type === 'text' || message_type === 'link') {
