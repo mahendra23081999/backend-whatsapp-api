@@ -23,11 +23,12 @@ setInterval(() => processedMids.clear(), 60000);
 
 
 export const handleWebhookVerification = async (req, res) => {
-  console.log("called");
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
+  console.log(`[Webhook Verification] ${req.originalUrl.split('?')[0]} mode=${mode} has_token=${!!token}`);
 
+  try {
   if (mode === 'subscribe') {
     if (token === process.env.WHATSAPP_VERIFY_TOKEN) {
       return res.status(200).send(challenge);
@@ -52,7 +53,12 @@ export const handleWebhookVerification = async (req, res) => {
       return res.status(200).send(challenge);
     }
   }
+  } catch (err) {
+    console.error('[Webhook Verification] Error while checking verify token:', err.message);
+    return res.sendStatus(500);
+  }
 
+  console.warn(`[Webhook Verification] FAILED for ${req.originalUrl.split('?')[0]} — verify token did not match any configured token (mode=${mode})`);
   return res.sendStatus(403);
 };
 
@@ -862,6 +868,8 @@ export const handleFacebookInstagramIncoming = async (req, res, io = null) => {
     }
   } catch (error) {
     console.error('[Facebook/Instagram Webhook Error]:', error);
+    // Always ACK so Meta does not keep retrying and eventually disable the webhook
+    if (!res.headersSent) res.status(200).send('EVENT_RECEIVED');
   }
 };
 

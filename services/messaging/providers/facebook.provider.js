@@ -196,7 +196,19 @@ class FacebookProvider {
             'messages'
         ];
         let lastError;
-        for (const fields of fieldSets) {
+        let existing = [];
+        try {
+            const subs = await this.getPageSubscriptions(pageId, pageAccessToken);
+            existing = subs.flatMap(s => (s.subscribed_fields || []).map(f => (typeof f === 'string' ? f : f?.name)).filter(Boolean));
+        } catch (_) { /* non-fatal: fall through to the plain field sets */ }
+
+        // Keep fields that are already subscribed (e.g. comments added by Instagram) so we don't drop them;
+        // fall back to the plain sets if an existing field is rejected.
+        const attempts = [...new Set([
+            ...fieldSets.map(base => [...new Set([...base.split(','), ...existing])].join(',')),
+            ...fieldSets
+        ])];
+        for (const fields of attempts) {
             try {
                 const response = await axios.post(url, null, {
                     params: { subscribed_fields: fields, access_token: pageAccessToken }
@@ -209,6 +221,51 @@ class FacebookProvider {
             }
         }
         console.error(`[FacebookProvider] Page ${pageId} could NOT be subscribed to any webhook fields — incoming Facebook messages will not arrive. Check the page token has pages_messaging + pages_manage_metadata.`);
+        throw lastError;
+    }
+
+    /**
+     * Add webhook fields to a page subscription WITHOUT removing the ones already there.
+     * Meta's POST /{page}/subscribed_apps REPLACES the field list, so posting only "leadgen"
+     * silently drops "messages" and incoming Facebook messages stop arriving.
+     */
+    async addPageSubscriptionFields(pageId, pageAccessToken, fields = []) {
+        const url = `https://graph.facebook.com/${FB_API_VERSION}/${pageId}/subscribed_apps`;
+        const wanted = Array.isArray(fields) ? fields : String(fields).split(',').map(f => f.trim()).filter(Boolean);
+
+        let existing = [];
+        try {
+            const subs = await this.getPageSubscriptions(pageId, pageAccessToken);
+            existing = subs.flatMap(s => (s.subscribed_fields || []).map(f => (typeof f === 'string' ? f : f?.name)).filter(Boolean));
+            console.log(`[FacebookProvider] Page ${pageId} current webhook fields: ${existing.join(',') || '(none)'}`);
+        } catch (error) {
+            console.warn(`[FacebookProvider] Could not read current subscriptions for page ${pageId}:`, JSON.stringify(error?.response?.data || { message: error.message }));
+        }
+
+        const uniq = arr => [...new Set(arr)];
+        const messagingFields = ['messages', 'messaging_postbacks', 'message_reactions'];
+        const attempts = uniq([
+            uniq([...existing, ...wanted]).join(','),
+            uniq([...wanted, ...existing.filter(f => messagingFields.includes(f))]).join(','),
+            uniq(wanted).join(',')
+        ].filter(Boolean));
+
+        let lastError;
+        for (const fieldList of attempts) {
+            try {
+                const response = await axios.post(url, null, {
+                    params: { subscribed_fields: fieldList, access_token: pageAccessToken }
+                });
+                console.log(`[FacebookProvider] Page ${pageId} subscribed to webhook fields: ${fieldList}`, JSON.stringify(response.data));
+                if (existing.includes('messages') && !fieldList.split(',').includes('messages')) {
+                    console.warn(`[FacebookProvider] Page ${pageId} LOST the "messages" subscription — incoming Facebook messages will stop. Re-sync the page from Facebook Connect.`);
+                }
+                return response.data;
+            } catch (error) {
+                lastError = error;
+                console.error(`[FacebookProvider] Subscribe page ${pageId} with fields "${fieldList}" FAILED:`, JSON.stringify(error?.response?.data || { message: error.message }));
+            }
+        }
         throw lastError;
     }
 

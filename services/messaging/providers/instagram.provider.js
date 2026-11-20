@@ -215,13 +215,38 @@ class InstagramProvider {
             const baseUrl = pageAccessToken.startsWith('IGAA') ? 'https://graph.instagram.com' : 'https://graph.facebook.com';
             const url = `${baseUrl}/${FB_API_VERSION}/${pageId}/subscribed_apps`;
 
-            const response = await axios.post(url, null, {
-                params: {
-                    subscribed_fields: 'messages,messaging_postbacks,message_reactions,messaging_seen,comments',
-                    access_token: pageAccessToken
+            const igFields = ['messages', 'messaging_postbacks', 'message_reactions', 'messaging_seen', 'comments'];
+
+            // For Facebook pages (graph.facebook.com) the POST REPLACES the field list, which would drop
+            // fields such as leadgen/feed that the Facebook flow subscribed. Merge with what is already there.
+            let existing = [];
+            if (!pageAccessToken.startsWith('IGAA')) {
+                try {
+                    const current = await axios.get(url, { params: { access_token: pageAccessToken } });
+                    existing = (current.data?.data || []).flatMap(s => (s.subscribed_fields || []).map(f => (typeof f === 'string' ? f : f?.name)).filter(Boolean));
+                } catch (e) {
+                    console.warn(`[InstagramProvider] Could not read current subscriptions for ${pageId}:`, JSON.stringify(e?.response?.data || { message: e.message }));
                 }
-            });
-            return response.data;
+            }
+
+            const attempts = [...new Set([
+                [...new Set([...igFields, ...existing])].join(','),
+                igFields.join(',')
+            ])];
+            let lastError;
+            for (const fields of attempts) {
+                try {
+                    const response = await axios.post(url, null, {
+                        params: { subscribed_fields: fields, access_token: pageAccessToken }
+                    });
+                    console.log(`[InstagramProvider] ${pageId} subscribed to webhook fields: ${fields}`, JSON.stringify(response.data));
+                    return response.data;
+                } catch (e) {
+                    lastError = e;
+                    console.error(`[InstagramProvider] Subscribe ${pageId} with fields "${fields}" FAILED:`, JSON.stringify(e?.response?.data || { message: e.message }));
+                }
+            }
+            throw lastError;
         } catch (error) {
             console.error('[InstagramProvider] Error subscribing instagram webhook:', JSON.stringify(error?.response?.data || {}) + ' ' + error.message);
             throw error;

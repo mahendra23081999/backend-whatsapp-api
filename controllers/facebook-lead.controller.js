@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import crypto from 'crypto';
 import axios from 'axios';
+import facebookProvider from '../services/messaging/providers/facebook.provider.js';
 import {
   Setting,
   FacebookPage,
@@ -192,16 +193,10 @@ export const connectLeadForm = async (req, res) => {
     let webhookSubscribed = false;
     let subscriptionError = null;
     try {
-      const subResp = await axios.post(
-        `https://graph.facebook.com/${FB_API_VERSION}/${page_id}/subscribed_apps`,
-        null,
-        {
-          params: {
-            subscribed_fields: 'leadgen',
-            access_token: page.page_access_token
-          }
-        }
-      );
+      // Merge with existing fields — posting only 'leadgen' would remove 'messages' and stop Messenger webhooks
+      const subResp = {
+        data: await facebookProvider.addPageSubscriptionFields(page_id, page.page_access_token, ['leadgen', 'messages', 'messaging_postbacks', 'message_reactions'])
+      };
       webhookSubscribed = subResp.data?.success === true;
       console.log(`[LeadGen] Page ${page_id} subscription response:`, subResp.data);
     } catch (subErr) {
@@ -372,16 +367,10 @@ export const createInstantForm = async (req, res) => {
     let webhookSubscribed = false;
     let subscriptionError = null;
     try {
-      const subResp = await axios.post(
-        `https://graph.facebook.com/${FB_API_VERSION}/${page_id}/subscribed_apps`,
-        null,
-        {
-          params: {
-            subscribed_fields: 'leadgen',
-            access_token: page.page_access_token
-          }
-        }
-      );
+      // Merge with existing fields — posting only 'leadgen' would remove 'messages' and stop Messenger webhooks
+      const subResp = {
+        data: await facebookProvider.addPageSubscriptionFields(page_id, page.page_access_token, ['leadgen', 'messages', 'messaging_postbacks', 'message_reactions'])
+      };
       webhookSubscribed = subResp.data?.success === true;
     } catch (subErr) {
       subscriptionError = subErr?.response?.data?.error?.message || subErr.message;
@@ -610,16 +599,10 @@ export const subscribePageToApp = async (req, res) => {
       console.warn('[LeadGen] Could not fetch current subscriptions:', e?.response?.data || e.message);
     }
 
-    const subResp = await axios.post(
-      `https://graph.facebook.com/${FB_API_VERSION}/${page_id}/subscribed_apps`,
-      null,
-      {
-        params: {
-          subscribed_fields: 'leadgen',
-          access_token: page.page_access_token
-        }
-      }
-    );
+    // Merge with existing fields — posting only 'leadgen' would remove 'messages' and stop Messenger webhooks
+    const subResp = {
+      data: await facebookProvider.addPageSubscriptionFields(page_id, page.page_access_token, ['leadgen', 'messages', 'messaging_postbacks', 'message_reactions'])
+    };
 
     console.log(`[LeadGen] Subscription response for page ${page_id}:`, subResp.data);
 

@@ -11,6 +11,7 @@ class OmnichannelService {
 
     async sendMessage({ platform, workspace_id, page_id, recipient_id, message_type = 'text', text, file_url, latitude, longitude, name, address, buttons, carousel_elements, ...options }) {
         try {
+
             const allowedTypes = ['text', 'image', 'video', 'document', 'audio', 'file', 'location', 'link', 'interactive', 'carousel', 'sticker', 'reaction'];
             if (!allowedTypes.includes(message_type)) {
                 throw new Error(`Message type '${message_type}' is not supported on ${platform}. Only text and media are allowed.`);
@@ -18,7 +19,6 @@ class OmnichannelService {
 
             const resolvedFileUrl = businessApiProvider.getPublicMediaUrl(file_url);
             console.log("=== OMNICHANNEL SEND MESSAGE DIAGNOSTIC ===");
-            console.log("Platform:", platform);
             console.log("Input file_url:", file_url);
             console.log("Resolved file_url:", resolvedFileUrl);
             console.log("APP_URL from env:", process.env.APP_URL);

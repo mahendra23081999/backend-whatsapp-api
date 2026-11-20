@@ -2,7 +2,7 @@ import express from "express";
 import cors from "cors";
 import path from "path";
 import { handleWebhookVerification } from "./controllers/whatsapp-webhook.controller.js";
-import { handleIncomingMessage as handleIncomingMessageOriginal, handleStatusUpdate as handleStatusUpdateOriginal } from "./controllers/whatsapp-webhook.controller.js";
+import { handleIncomingMessage as handleIncomingMessageOriginal, handleStatusUpdate as handleStatusUpdateOriginal, handleFacebookInstagramIncoming } from "./controllers/whatsapp-webhook.controller.js";
 import { denyMutationInDemo } from "./middlewares/demo-mode.js";
 import { rtInit } from "./node/src/middlewares/runtime-init.js";
 import session from 'express-session';
@@ -355,6 +355,12 @@ app.get("/instagram-callback", (req, res) => {
 });
 
 app.post("/webhook/whatsapp", (req, res) => {
+  // Meta sends Page (Messenger) and Instagram events to whatever callback URL is set on the app.
+  // If that is this URL, hand them to the Facebook/Instagram handler instead of dropping them.
+  if (req.body?.object === 'page' || req.body?.object === 'instagram') {
+    console.log(`[Webhook] /webhook/whatsapp received object="${req.body.object}" — routing to Facebook/Instagram handler`);
+    return handleFacebookInstagramIncoming(req, res);
+  }
   const entry = req.body.entry?.[0];
   const changes = entry?.changes?.[0];
   const value = changes?.value;
