@@ -122,24 +122,9 @@ export const handleFacebookCallback = async (req, res) => {
       const debugRes = await axios.get(`https://graph.facebook.com/debug_token`, {
         params: { input_token: accessToken, access_token: appToken }
       });
-      const grantedScopes = debugRes.data?.data?.scopes || [];
-      console.log("Granted Scopes:", grantedScopes);
+      console.log("Granted Scopes:", debugRes.data?.data?.scopes);
       console.log("Granular Scopes:", debugRes.data?.data?.granular_scopes);
       console.log("Token Data Access:", debugRes.data?.data?.data_access_expires_at ? new Date(debugRes.data?.data?.data_access_expires_at * 1000) : "N/A");
-
-      // Without these, /me/accounts returns no pages and Messenger webhooks can never be subscribed.
-      const requiredPageScopes = ['pages_show_list', 'pages_messaging', 'pages_manage_metadata'];
-      const missingScopes = requiredPageScopes.filter(s => !grantedScopes.includes(s));
-      if (grantedScopes.length && missingScopes.length) {
-        console.error(`[Facebook Connect] Token is missing page permissions: ${missingScopes.join(', ')}. Granted: ${grantedScopes.join(', ')}. ` +
-          'The frontend FB.login must request page scopes (not the WhatsApp Embedded Signup config_id). Facebook messages will NOT be received.');
-        return res.status(400).json({
-          success: false,
-          error: `Facebook login did not grant page permissions (${missingScopes.join(', ')}). Reconnect and allow access to your Facebook Page.`,
-          missing_scopes: missingScopes,
-          granted_scopes: grantedScopes
-        });
-      }
     } catch (debugErr) {
       console.warn('Could not debug token:', debugErr?.response?.data || debugErr.message);
     }
