@@ -82,6 +82,15 @@ io.on('connection', (socket) => {
 
 (async () => {
   try {
+    // .env is excluded from the Docker image (.dockerignore), so on Cloud Run these
+    // must be set as service environment variables. Fail with a clear message instead
+    // of crashing later with a vague error (which Cloud Run surfaces as instant 500s).
+    const missing = ['JWT_SECRET'].filter((k) => !process.env[k]);
+    if (!process.env.MONGO_URI && !process.env.MONGODB_URI) missing.push('MONGODB_URI');
+    if (missing.length) {
+      throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+    }
+
     await connectDB();
     await loadStripeKeysFromSettings();
     await loadRazorpayKeysFromSettings();

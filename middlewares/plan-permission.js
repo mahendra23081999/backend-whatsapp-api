@@ -205,6 +205,7 @@ export const requirePlanFeature = (feature) => {
 };
 
 export const requirePlatformFeature = (featureSuffix) => {
+
   return async (req, res, next) => {
     if (req.user?.role === 'super_admin') return next();
     if (req.isFreeTrial) return next();
@@ -232,10 +233,12 @@ export const requirePlatformFeature = (featureSuffix) => {
     const isEnabledInBooleans = req.plan?.features?.[feature] === true || req.plan?.features?.[feature] === "true";
 
     if (!isEnabledInToggles && !isEnabledInBooleans) {
+
       return res.status(403).json({
         success: false,
         message: `Your plan does not include this feature: ${feature.replace(/_/g, ' ')}`,
       });
+      
     }
     next();
   };

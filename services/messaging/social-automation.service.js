@@ -10,8 +10,8 @@ class SocialAutomationService {
 
     async handleIncomingComment(platform, entryData, connectionData) {
         try {
-            console.log(`[SocialAutomation] Handling ${platform} comment:`, JSON.stringify(entryData));
 
+            console.log(`[SocialAutomation] Handling ${platform} comment:`, JSON.stringify(entryData));
             const value = entryData.value || entryData;
             if (!value.text || !value.from || !value.media) return;
 
@@ -28,6 +28,7 @@ class SocialAutomationService {
                 const { SocialMediaPost } = await import('../../models/index.js');
                 const post = await SocialMediaPost.findOne({ media_id: mediaId }).lean();
                 if (post) {
+                    
                     if (post.media_product_type === 'REELS' || post.media_type === 'reel' || (post.permalink && post.permalink.includes('/reel/'))) {
                         automationTypes = ['reel_comment'];
                     } else if (post.media_product_type === 'STORY' || post.media_type === 'story') {
